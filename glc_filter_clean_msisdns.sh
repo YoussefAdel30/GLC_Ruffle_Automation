@@ -17,8 +17,8 @@
 #     1) msisdn_user          exclude MSISDNs that have a User
 #     2) msisdn_wallet_profile exclude wallet_profile = Credit Only Consumer
 #     3) msisdn_wallet_status  exclude wallet_status = Suspended or Barred
-#     4) msisdn_line_status    exclude line_status = Suspended or Barred
-#                              (override with --line-status-exclude; empty = log only)
+#     4) msisdn_line_status    exclude fraud/VOIP suspension reasons
+#                              (default list: exclude_lists/line_status_reasons.txt)
 #   Step 2 (filter group 2)
 #     5) msisdn_device then device_msisdn
 #        working set becomes original MSISDNs that had no device
@@ -59,7 +59,9 @@ GLC_AUTO="${GLC_AUTO:-$DEFAULT_GLC_AUTO}"
 REQUEST_TYPES="${REQUEST_TYPES:-$DEFAULT_REQUEST_TYPES}"
 WALLET_PROFILE_EXCLUDE="Credit Only Consumer"
 WALLET_STATUS_EXCLUDE="Suspended,Barred"
-LINE_STATUS_EXCLUDE="Suspended,Barred"
+LINE_STATUS_EXCLUDE=""
+LINE_STATUS_EXCLUDE_SET=0
+LINE_STATUS_EXCLUDE_FILE="${SCRIPT_DIR}/exclude_lists/line_status_reasons.txt"
 GLC_RETRIES=3
 GLC_RETRY_SLEEP=2
 
@@ -87,8 +89,12 @@ Options:
                                Comma-separated wallet statuses to exclude
                                (default: ${WALLET_STATUS_EXCLUDE})
       --line-status-exclude LIST
-                               Comma-separated line statuses to exclude
-                               (default: ${LINE_STATUS_EXCLUDE}; empty = log only)
+                               Comma-separated suspension reasons to exclude.
+                               Empty string = log only, do not exclude.
+                               Default: reasons in exclude_lists/line_status_reasons.txt
+      --line-status-exclude-file FILE
+                               File of suspension reasons, one per line
+                               (default: exclude_lists/line_status_reasons.txt)
       --retries N              GLC call retries on invalid JSON (default: ${GLC_RETRIES})
   -h, --help                   Show this help
 
@@ -447,7 +453,8 @@ parse_args() {
       --request-types) REQUEST_TYPES="$2"; shift 2 ;;
       --wallet-profile-exclude) WALLET_PROFILE_EXCLUDE="$2"; shift 2 ;;
       --wallet-status-exclude) WALLET_STATUS_EXCLUDE="$2"; shift 2 ;;
-      --line-status-exclude) LINE_STATUS_EXCLUDE="$2"; shift 2 ;;
+      --line-status-exclude) LINE_STATUS_EXCLUDE="$2"; LINE_STATUS_EXCLUDE_SET=1; shift 2 ;;
+      --line-status-exclude-file) LINE_STATUS_EXCLUDE_FILE="$2"; shift 2 ;;
       --retries) GLC_RETRIES="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       --) shift; break ;;
@@ -496,7 +503,15 @@ main() {
   log_info "date_from=${DATE_FROM:-'(from templates)'} date_to=${DATE_TO:-'(from templates)'}"
   log_info "wallet_profile_exclude=${WALLET_PROFILE_EXCLUDE}"
   log_info "wallet_status_exclude=${WALLET_STATUS_EXCLUDE}"
-  log_info "line_status_exclude=${LINE_STATUS_EXCLUDE:-'(log only, no exclude)'}"
+  if [[ "$LINE_STATUS_EXCLUDE_SET" -eq 1 ]]; then
+    log_info "line_status_exclude=${LINE_STATUS_EXCLUDE:-'(log only, no exclude)'}"
+  else
+    [[ -f "$LINE_STATUS_EXCLUDE_FILE" ]] || fail "missing line-status exclude file: $LINE_STATUS_EXCLUDE_FILE"
+    python_parse unique --nodes-file "$LINE_STATUS_EXCLUDE_FILE" --out "${RUN_DIR}/line_status_reasons.txt"
+    LINE_STATUS_EXCLUDE_FILE="${RUN_DIR}/line_status_reasons.txt"
+    log_info "line_status_exclude_file=${LINE_STATUS_EXCLUDE_FILE}"
+    log_info "line_status_exclude reasons ($(count_lines "$LINE_STATUS_EXCLUDE_FILE")): $(preview_list "$LINE_STATUS_EXCLUDE_FILE")"
+  fi
   log_info "=============================================================="
 
   load_msisdns "$INPUT_FILE" "$CURRENT"
@@ -615,17 +630,29 @@ main() {
 
     local excl4="${RUN_DIR}/step4_exclude.txt"
     : > "$excl4"
-    if [[ -n "$LINE_STATUS_EXCLUDE" ]]; then
+    local step4_match_args=()
+    local step4_do_exclude=1
+    if [[ "$LINE_STATUS_EXCLUDE_SET" -eq 1 ]]; then
+      if [[ -z "$LINE_STATUS_EXCLUDE" ]]; then
+        step4_do_exclude=0
+      else
+        step4_match_args=(--match-values "$LINE_STATUS_EXCLUDE")
+      fi
+    else
+      [[ -f "$LINE_STATUS_EXCLUDE_FILE" ]] || fail "missing line-status exclude file: $LINE_STATUS_EXCLUDE_FILE"
+      step4_match_args=(--match-values-file "$LINE_STATUS_EXCLUDE_FILE")
+    fi
+    if [[ "$step4_do_exclude" -eq 1 ]]; then
       python_parse exclude-if-value \
         --response "$resp4" \
         --from-type "$MSISDN_TYPE" \
         --to-type "$LINE_STATUS_TYPE" \
-        --match-values "$LINE_STATUS_EXCLUDE" \
+        "${step4_match_args[@]}" \
         --candidates "$CURRENT" > "${RUN_DIR}/step4_exclude.raw"
       while IFS='|' read -r msisdn matched allv || [[ -n "${msisdn:-}" ]]; do
         [[ -n "$msisdn" ]] || continue
         echo "$msisdn" >> "$excl4"
-        record_exclusion "$msisdn" "4-line_status" "line_status" "matched=${matched};all=${allv}"
+        record_exclusion "$msisdn" "4-line_status" "suspension_reason" "matched=${matched};all=${allv}"
       done < "${RUN_DIR}/step4_exclude.raw"
     else
       log_info "line-status exclude list is empty; logging statuses only (no exclusions)"

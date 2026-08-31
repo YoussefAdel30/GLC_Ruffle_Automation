@@ -77,6 +77,13 @@ for msisdn, step in expected_excluded.items():
 extra = set(excluded) - set(expected_excluded)
 if extra:
     errors.append("unexpected exclusions: %s" % sorted(extra))
+if "201033008757" in excluded and "Credit Only Consumer" not in excluded["201033008757"][2]:
+    errors.append("wallet profile exclusion missing Credit Only Consumer: %s" % (excluded["201033008757"],))
+if "201222222222" in excluded:
+    if excluded["201222222222"][1] != "suspension_reason":
+        errors.append("step 4 reason should be suspension_reason: %s" % (excluded["201222222222"],))
+    if "Fraud IRSF" not in excluded["201222222222"][2]:
+        errors.append("step 4 should match Fraud IRSF: %s" % (excluded["201222222222"],))
 if errors:
     raise SystemExit("E2E FAILED:\n- " + "\n- ".join(errors))
 print("e2e_ok")

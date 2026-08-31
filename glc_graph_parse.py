@@ -339,10 +339,19 @@ def cmd_exclude_if_related(args):
         print("%s|%s" % (src, ",".join(values)))
 
 
+def collect_match_values(match_values=None, match_values_file=None):
+    values = []
+    if match_values:
+        values.extend(v.strip() for v in str(match_values).split(",") if v.strip())
+    if match_values_file:
+        values.extend(_read_lines(match_values_file))
+    return values
+
+
 def cmd_exclude_if_value(args):
     data = _load_json(args.response)
     candidates = _read_lines(args.candidates) if args.candidates else None
-    match_values = [v.strip() for v in (args.match_values or "").split(",") if v.strip()]
+    match_values = collect_match_values(args.match_values, args.match_values_file)
     rows = exclude_if_value(
         data, args.from_type, args.to_type, match_values, candidates
     )
@@ -546,6 +555,44 @@ def cmd_selftest(_args):
     )
     assert [r[0] for r in bad] == ["201111111111"], bad
 
+    reasons_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "exclude_lists",
+        "line_status_reasons.txt",
+    )
+    reasons = _read_lines(reasons_path)
+    assert "Fraud" in reasons
+    assert "Fraud Nonpayment" in reasons
+    line_graph = {
+        "vertices": [],
+        "edges": [
+            {
+                "nodeA": {"nodeName": "201222222222", "nodeTypeId": 1},
+                "nodeB": {"nodeName": "Fraud IRSF", "nodeTypeId": 1160},
+            },
+            {
+                "nodeA": {"nodeName": "201000000001", "nodeTypeId": 1},
+                "nodeB": {"nodeName": "Fraud", "nodeTypeId": 1160},
+            },
+            {
+                "nodeA": {"nodeName": "201000000002", "nodeTypeId": 1},
+                "nodeB": {"nodeName": "Active", "nodeTypeId": 1160},
+            },
+            {
+                "nodeA": {"nodeName": "201000000003", "nodeTypeId": 1},
+                "nodeB": {"nodeName": "Suspended", "nodeTypeId": 1160},
+            },
+        ],
+    }
+    line_bad = exclude_if_value(
+        line_graph,
+        MSISDN_TYPE_ID,
+        LINE_STATUS_TYPE_ID,
+        reasons,
+        ["201222222222", "201000000001", "201000000002", "201000000003"],
+    )
+    assert sorted(r[0] for r in line_bad) == ["201000000001", "201222222222"], line_bad
+
     isolated = {
         "vertices": [
             {
@@ -615,7 +662,8 @@ def build_parser():
     p.add_argument("--response", required=True)
     p.add_argument("--from-type", type=int, required=True)
     p.add_argument("--to-type", type=int, required=True)
-    p.add_argument("--match-values", required=True)
+    p.add_argument("--match-values", default="")
+    p.add_argument("--match-values-file")
     p.add_argument("--candidates")
     p.set_defaults(func=cmd_exclude_if_value)
 

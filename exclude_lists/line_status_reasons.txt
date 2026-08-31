@@ -1,0 +1,15 @@
+# Line Status / suspension reasons that cause an MSISDN to be excluded
+# in step 4 (msisdn_line_status). One reason per line. Matching is
+# case-insensitive and exact (not substring).
+Fraud Nonpayment
+Fraud
+Financial fraud
+Fraud IRSF
+Fraud buster VOIP Suspension
+Suspension VOIP
+Advanced VoIP Suspension
+Araxxe O VoIP Suspension
+Enterprise-Fraud buster VOIP Susp
+New VOIP Disconnection Suspension
+TAC VoIP Suspension
+VOIP Disconnection Suspension
