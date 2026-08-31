@@ -6,6 +6,7 @@ from __future__ import print_function
 import argparse
 import json
 import os
+import re
 import sys
 
 
@@ -174,6 +175,26 @@ def _norm(value):
     return str(value or "").strip().casefold()
 
 
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+def line_status_reason(value):
+    """Extract the suspension reason from a Line Status node label.
+
+    GLC labels look like:
+      Suspended_Non - Payment<br>2026-08-30 14:23:05
+    The reason is the text between the first '_' and the '<br>'.
+    Bare values such as 'Fraud IRSF' or 'Active' are returned as-is.
+    """
+    text = str(value or "").replace("\r", "").strip()
+    if not text:
+        return ""
+    head = _BR_RE.split(text, 1)[0].strip()
+    if "_" in head:
+        return head.split("_", 1)[1].strip()
+    return head
+
+
 def exclude_if_related(data, from_type_id, to_type_id, candidates=None):
     """Return (src, related_values) for sources that have any related target node."""
     mapping = related_map(data, from_type_id, to_type_id)
@@ -188,15 +209,24 @@ def exclude_if_related(data, from_type_id, to_type_id, candidates=None):
 
 
 def exclude_if_value(data, from_type_id, to_type_id, match_values, candidates=None):
-    """Return (src, matched_values) when a related node name is in match_values."""
+    """Return (src, matched_values) when a related node name is in match_values.
+
+    For Line Status (type 1160), compare the suspension reason extracted
+    from labels like 'Suspended_REASON<br>timestamp' against match_values.
+    """
     wanted = set(_norm(v) for v in match_values if str(v).strip())
     mapping = related_map(data, from_type_id, to_type_id)
     cand = set(candidates) if candidates is not None else None
+    extract = to_type_id == LINE_STATUS_TYPE_ID
     out = []
     for src, values in mapping.items():
         if cand is not None and src not in cand:
             continue
-        matched = [v for v in values if _norm(v) in wanted]
+        matched = []
+        for value in values:
+            reason = line_status_reason(value) if extract else value
+            if _norm(reason) in wanted or _norm(value) in wanted:
+                matched.append(reason if extract else value)
         if matched:
             out.append((src, matched, values))
     return out
@@ -746,6 +776,16 @@ def cmd_selftest(_args):
     )
     assert [r[0] for r in bad] == ["201111111111"], bad
 
+    assert line_status_reason(
+        "Suspended_Non - Payment<br>2026-08-30 14:23:05"
+    ) == "Non - Payment"
+    assert line_status_reason(
+        "Suspended_Fraud IRSF<br>2026-08-30 14:23:05"
+    ) == "Fraud IRSF"
+    assert line_status_reason("Suspended_Fraud IRSF<br/>2026-08-30 14:23:05") == "Fraud IRSF"
+    assert line_status_reason("Fraud IRSF") == "Fraud IRSF"
+    assert line_status_reason("Active") == "Active"
+
     reasons_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "exclude_lists",
@@ -759,7 +799,10 @@ def cmd_selftest(_args):
         "edges": [
             {
                 "nodeA": {"nodeName": "201222222222", "nodeTypeId": 1},
-                "nodeB": {"nodeName": "Fraud IRSF", "nodeTypeId": 1160},
+                "nodeB": {
+                    "nodeName": "Suspended_Fraud IRSF<br>2026-08-30 14:23:05",
+                    "nodeTypeId": 1160,
+                },
             },
             {
                 "nodeA": {"nodeName": "201000000001", "nodeTypeId": 1},
@@ -771,7 +814,10 @@ def cmd_selftest(_args):
             },
             {
                 "nodeA": {"nodeName": "201000000003", "nodeTypeId": 1},
-                "nodeB": {"nodeName": "Suspended", "nodeTypeId": 1160},
+                "nodeB": {
+                    "nodeName": "Suspended_Non - Payment<br>2026-08-30 14:23:05",
+                    "nodeTypeId": 1160,
+                },
             },
         ],
     }
@@ -783,6 +829,9 @@ def cmd_selftest(_args):
         ["201222222222", "201000000001", "201000000002", "201000000003"],
     )
     assert sorted(r[0] for r in line_bad) == ["201000000001", "201222222222"], line_bad
+    assert line_bad[0][0] == "201222222222" or line_bad[1][0] == "201222222222"
+    fraud_irsf = [r for r in line_bad if r[0] == "201222222222"][0]
+    assert fraud_irsf[1] == ["Fraud IRSF"], fraud_irsf
 
     isolated = {
         "vertices": [

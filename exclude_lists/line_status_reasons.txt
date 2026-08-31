@@ -1,5 +1,7 @@
 # Line Status / suspension reasons that cause an MSISDN to be excluded
-# in step 4 (msisdn_line_status). One reason per line. Matching is
+# in step 4 (msisdn_line_status). One reason per line.
+# GLC labels look like: Suspended_<reason><br>timestamp
+# Matching uses the <reason> text (between '_' and '<br>'),
 # case-insensitive and exact (not substring).
 Fraud Nonpayment
 Fraud

@@ -20,6 +20,7 @@
 #     2) msisdn_wallet_profile exclude wallet_profile = Credit Only Consumer
 #     3) msisdn_wallet_status  exclude wallet_status = Suspended or Barred
 #     4) msisdn_line_status    exclude fraud/VOIP suspension reasons
+#                              extracted from Suspended_<reason><br>timestamp
 #                              (default list: exclude_lists/line_status_reasons.txt)
 #   Step 2 (filter group 2)
 #     5) msisdn-device-msisdn-id-user  (one step)
