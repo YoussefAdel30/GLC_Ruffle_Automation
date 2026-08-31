@@ -2,8 +2,10 @@
 #
 # glc_filter_clean_msisdns.sh
 #
-# Filter a list of MSISDNs through sequential GLC relation checks and print
-# the remaining (clean) MSISDNs.
+# Filter a list of MSISDNs through sequential GLC relation checks.
+# Output is a report with remaining MSISDNs and, for every original
+# input MSISDN that was dropped, the exclusion step and reason.
+
 #
 # Usage:
 #   chmod 775 glc_filter_clean_msisdns.sh
@@ -69,12 +71,12 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [MSISDN_FILE]
 
-Filter MSISDNs through GLC relation checks. Remaining clean MSISDNs are
-printed to stdout and written to the run directory.
+Filter MSISDNs through GLC relation checks. The report printed to stdout
+lists remaining MSISDNs and why each original input MSISDN was excluded.
 
 Options:
   -i, --input FILE             MSISDN list (one per line). Use - for stdin.
-  -o, --output FILE            Also write clean MSISDNs to FILE
+  -o, --output FILE            Write the full report to FILE
   -d, --run-dir DIR            Directory for logs and raw GLC responses
       --date-from DATE         Override dateFrom in every GLC request
       --date-to DATE           Override dateTo in every GLC request
@@ -100,7 +102,7 @@ Options:
 
 Examples:
   $(basename "$0") -i msisdns.txt
-  $(basename "$0") -i msisdns.txt -o clean.txt --slow-batch-size 30
+  $(basename "$0") -i msisdns.txt -o report.txt --slow-batch-size 30
 EOF
 }
 
@@ -822,27 +824,33 @@ main() {
   finish_step "STEP 7 user_sub/sub_user" "$CURRENT"
 
   cp "$CURRENT" "$CLEAN_FILE"
+  local REPORT_FILE="${RUN_DIR}/report.txt"
+  python_parse write-report \
+    --input-file "${RUN_DIR}/input_msisdns.txt" \
+    --remaining-file "$CLEAN_FILE" \
+    --excluded-file "$EXCLUDED_FILE" \
+    --out "$REPORT_FILE"
+
   local clean_count
   clean_count="$(count_lines "$CLEAN_FILE")"
   local excluded_count
   excluded_count="$(tail -n +2 "$EXCLUDED_FILE" | wc -l | tr -d ' ')"
 
   log_info "=============================================================="
-  log_info "DONE  clean_msisdns=${clean_count}  excluded=${excluded_count}"
-  log_info "clean file: ${CLEAN_FILE}"
+  log_info "DONE  remaining=${clean_count}  excluded=${excluded_count}"
+  log_info "report: ${REPORT_FILE}"
+  log_info "remaining file: ${CLEAN_FILE}"
   log_info "excluded file: ${EXCLUDED_FILE}"
   log_info "log file: ${LOG_FILE}"
-  log_info "clean MSISDNs: $(preview_list "$CLEAN_FILE")"
+  log_info "remaining MSISDNs: $(preview_list "$CLEAN_FILE")"
   log_info "=============================================================="
 
   if [[ -n "$OUTPUT_FILE" ]]; then
-    cp "$CLEAN_FILE" "$OUTPUT_FILE"
-    log_info "Wrote clean MSISDNs to ${OUTPUT_FILE}"
+    cp "$REPORT_FILE" "$OUTPUT_FILE"
+    log_info "Wrote report to ${OUTPUT_FILE}"
   fi
 
-  if [[ "$clean_count" -gt 0 ]]; then
-    cat "$CLEAN_FILE"
-  fi
+  cat "$REPORT_FILE"
 }
 
 main "$@"

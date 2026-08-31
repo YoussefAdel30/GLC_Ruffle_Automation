@@ -31,22 +31,26 @@ echo "=== e2e filter test ==="
   --batch-size 3 \
   --slow-batch-size 2 \
   -i "$ROOT/tests/fixtures/input_msisdns.txt" \
-  -o "$TMP/clean.txt" \
+  -o "$TMP/report.txt" \
   -d "$TMP/run" \
   > "$TMP/stdout.txt"
 
-echo "--- clean stdout ---"
+echo "--- report stdout ---"
 cat "$TMP/stdout.txt"
+echo "--- remaining ---"
+cat "$TMP/run/clean_msisdns.txt"
 echo "--- excluded ---"
 cat "$TMP/run/excluded.txt"
 echo "--- log (tail) ---"
-tail -n 40 "$TMP/run/filter.log"
+tail -n 20 "$TMP/run/filter.log"
 
-python3 - "$TMP/clean.txt" "$TMP/run/excluded.txt" <<'PY'
+python3 - "$TMP/run/clean_msisdns.txt" "$TMP/run/excluded.txt" "$TMP/stdout.txt" "$TMP/report.txt" "$ROOT/tests/fixtures/input_msisdns.txt" <<'PY'
 import sys
 
-clean_path, excluded_path = sys.argv[1:3]
+clean_path, excluded_path, stdout_path, report_path, input_path = sys.argv[1:6]
 clean = [ln.strip() for ln in open(clean_path) if ln.strip()]
+report = open(stdout_path).read()
+report_file = open(report_path).read()
 excluded = {}
 for ln in open(excluded_path):
     ln = ln.strip()
@@ -54,6 +58,16 @@ for ln in open(excluded_path):
         continue
     msisdn, step, reason, detail = ln.split("|", 3)
     excluded[msisdn] = (step, reason, detail)
+
+input_msisdns = []
+seen = set()
+for ln in open(input_path):
+    item = ln.strip()
+    if not item or item.startswith("#"):
+        continue
+    if item not in seen:
+        seen.add(item)
+        input_msisdns.append(item)
 
 expected_clean = ["201666666666", "201333333333", "201777777777"]
 expected_excluded = {
@@ -83,6 +97,24 @@ if "201222222222" in excluded:
         errors.append("step 4 reason should be suspension_reason: %s" % (excluded["201222222222"],))
     if "Fraud IRSF" not in excluded["201222222222"][2]:
         errors.append("step 4 should match Fraud IRSF: %s" % (excluded["201222222222"],))
+if report != report_file:
+    errors.append("stdout report differs from -o report file")
+if "----- REMAINING MSISDNs (3) -----" not in report:
+    errors.append("report missing remaining header: %s" % report[:400])
+for msisdn in expected_clean:
+    remaining_section = report.split("----- EXCLUDED INPUT MSISDNs")[0]
+    if msisdn not in remaining_section:
+        errors.append("remaining msisdn %s missing from report remaining section" % msisdn)
+for msisdn in input_msisdns:
+    if msisdn in expected_clean:
+        continue
+    if msisdn not in report:
+        errors.append("excluded input %s missing from report" % msisdn)
+    else:
+        if excluded[msisdn][0] not in report:
+            errors.append("excluded input %s missing step in report" % msisdn)
+if "201444444444" not in report or "not in input" not in report:
+    errors.append("device-discovered exclusion 201444444444 missing extra section")
 if errors:
     raise SystemExit("E2E FAILED:\n- " + "\n- ".join(errors))
 print("e2e_ok")

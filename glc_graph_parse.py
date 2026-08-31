@@ -394,6 +394,128 @@ def cmd_unique(args):
     _write_lines(args.out, unique_preserve(items))
 
 
+def _load_exclusions(path):
+    rows = []
+    try:
+        fh = open(path)
+    except IOError:
+        return rows
+    with fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("msisdn|"):
+                continue
+            parts = line.split("|", 3)
+            while len(parts) < 4:
+                parts.append("")
+            rows.append(
+                {
+                    "msisdn": parts[0],
+                    "step": parts[1],
+                    "reason": parts[2],
+                    "detail": parts[3],
+                }
+            )
+    return rows
+
+
+def build_report(input_msisdns, remaining, exclusions):
+    remaining = unique_preserve(remaining)
+    remaining_set = set(remaining)
+    orig = unique_preserve(input_msisdns)
+    orig_set = set(orig)
+    excl_by_msisdn = {}
+    for row in exclusions:
+        excl_by_msisdn.setdefault(row["msisdn"], row)
+
+    remaining_from_input = [m for m in remaining if m in orig_set]
+    remaining_added = [m for m in remaining if m not in orig_set]
+    excluded_input = [m for m in orig if m in excl_by_msisdn]
+    excluded_extra = [
+        m for m in unique_preserve(r["msisdn"] for r in exclusions) if m not in orig_set
+    ]
+    missing = [
+        m for m in orig if m not in remaining_set and m not in excl_by_msisdn
+    ]
+
+    lines = []
+    lines.append("=" * 64)
+    lines.append("GLC MSISDN FILTER REPORT")
+    lines.append("=" * 64)
+    lines.append("input_msisdns=%s" % len(orig))
+    lines.append("remaining=%s" % len(remaining))
+    lines.append("excluded_from_input=%s" % len(excluded_input))
+    if remaining_added:
+        lines.append("remaining_added_via_device=%s" % len(remaining_added))
+    if excluded_extra:
+        lines.append("excluded_not_in_input=%s" % len(excluded_extra))
+    if missing:
+        lines.append("input_unaccounted=%s" % len(missing))
+    lines.append("")
+
+    lines.append("----- REMAINING MSISDNs (%s) -----" % len(remaining))
+    if remaining:
+        lines.extend(remaining)
+    else:
+        lines.append("(none)")
+    lines.append("")
+
+    lines.append("----- EXCLUDED INPUT MSISDNs (%s) -----" % len(excluded_input))
+    if excluded_input:
+        for msisdn in excluded_input:
+            row = excl_by_msisdn[msisdn]
+            lines.append(msisdn)
+            lines.append("  step:   %s" % row["step"])
+            lines.append("  reason: %s" % row["reason"])
+            lines.append("  detail: %s" % row["detail"])
+            lines.append("")
+    else:
+        lines.append("(none)")
+        lines.append("")
+
+    if excluded_extra:
+        lines.append(
+            "----- EXCLUDED (found via shared device, not in input) (%s) -----"
+            % len(excluded_extra)
+        )
+        for msisdn in excluded_extra:
+            row = excl_by_msisdn[msisdn]
+            lines.append(msisdn)
+            lines.append("  step:   %s" % row["step"])
+            lines.append("  reason: %s" % row["reason"])
+            lines.append("  detail: %s" % row["detail"])
+            lines.append("")
+
+    if remaining_added:
+        lines.append(
+            "----- REMAINING ADDED VIA DEVICE (not in original input) (%s) -----"
+            % len(remaining_added)
+        )
+        lines.extend(remaining_added)
+        lines.append("")
+
+    if missing:
+        lines.append("----- INPUT MSISDNs WITH NO RESULT (%s) -----" % len(missing))
+        lines.extend(missing)
+        lines.append("")
+
+    lines.append("=" * 64)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def cmd_write_report(args):
+    text = build_report(
+        _read_lines(args.input_file),
+        _read_lines(args.remaining_file),
+        _load_exclusions(args.excluded_file),
+    )
+    if args.out and args.out != "-":
+        with open(args.out, "w") as fh:
+            fh.write(text)
+    else:
+        sys.stdout.write(text)
+
+
 def _sample_msisdn_user():
     return {
         "responseCode": 0,
@@ -619,6 +741,23 @@ def cmd_selftest(_args):
     assert req["dateFrom"] == "2026/08/01 00:00:00"
     assert req["dateTo"] == "2026/01/31 23:59:59"
 
+    report = build_report(
+        ["201066257228", "201666666666"],
+        ["201666666666"],
+        [
+            {
+                "msisdn": "201066257228",
+                "step": "1-msisdn_user",
+                "reason": "has_user",
+                "detail": "ADELY1",
+            }
+        ],
+    )
+    assert "201666666666" in report
+    assert "201066257228" in report
+    assert "has_user" in report
+    assert "ADELY1" in report
+
     print("selftest_ok")
 
 
@@ -689,6 +828,13 @@ def build_parser():
     p.add_argument("--nodes-file", required=True)
     p.add_argument("--out", default="-")
     p.set_defaults(func=cmd_unique)
+
+    p = sub.add_parser("write-report")
+    p.add_argument("--input-file", required=True)
+    p.add_argument("--remaining-file", required=True)
+    p.add_argument("--excluded-file", required=True)
+    p.add_argument("--out", default="-")
+    p.set_defaults(func=cmd_write_report)
 
     p = sub.add_parser("selftest")
     p.set_defaults(func=cmd_selftest)
