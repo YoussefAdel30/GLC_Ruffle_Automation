@@ -1,0 +1,13 @@
+{
+  "graphDepth": 1,
+  "dateFrom": "2026/08/25 00:00:00",
+  "dateTo": "2026/08/30 23:59:59",
+  "linkTypeCat": 23,
+  "dispTypes": "1000,1",
+  "nodes": [{
+    "id": "1",
+    "nodeType": "1000",
+    "nodes": "35257943746359",
+    "text": "Device"
+  }]
+}

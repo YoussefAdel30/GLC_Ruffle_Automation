@@ -1,0 +1,13 @@
+{
+  "graphDepth": 1,
+  "dateFrom": "2026/04/25 00:00:00",
+  "dateTo": "2026/05/25 23:59:59",
+  "linkTypeCat": 11,
+  "dispTypes": "1,1003",
+  "nodes": [{
+    "id": "1",
+    "nodeType": "1",
+    "nodes": "201066257228",
+    "text": "MSISDN"
+  }]
+}

@@ -1,0 +1,13 @@
+{
+  "graphDepth": 1,
+  "dateFrom": "2026/08/25 00:00:00",
+  "dateTo": "2026/08/30 23:59:59",
+  "linkTypeCat": 555,
+  "dispTypes": "1003,1001",
+  "nodes": [{
+    "id": "1003",
+    "nodeType": "1003",
+    "nodes": "30008300101556",
+    "text": "ID"
+  }]
+}
