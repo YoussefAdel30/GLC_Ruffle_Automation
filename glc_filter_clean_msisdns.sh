@@ -22,15 +22,14 @@
 #     4) msisdn_line_status    exclude fraud/VOIP suspension reasons
 #                              (default list: exclude_lists/line_status_reasons.txt)
 #   Step 2 (filter group 2)
-#     5) msisdn_device then device_msisdn
-#        extra MSISDNs on those devices are used only for the ID-user check
-#        remaining set never grows
-#     6) msisdn_id then id_user
-#        exclude remaining MSISDNs whose ID has a User, or that share a
-#        device with an MSISDN whose ID has a User
+#     5) msisdn-device-msisdn-id-user  (one step)
+#        hop: msisdn_device + device_msisdn (hop set may grow)
+#        then msisdn_id + id_user on that hop set
+#        walk back and exclude the original remaining MSISDNs that
+#        link to a User. Remaining after this step is always <= input.
 #   Step 3 (filter group 3)
 #     7) user_sub and sub_user (batched, default 30)
-#        exclude any input MSISDN that has any relation
+#        exclude any remaining MSISDN that has any relation
 #
 # Logs every GLC call, mapping, exclusion reason, and remaining count.
 # Raw responses are stored under the run directory for debugging.
@@ -682,19 +681,24 @@ main() {
   finish_step "STEP 4 msisdn_line_status" "$CURRENT"
 
   # ------------------------------------------------------------------
-  # STEP 5: msisdn_device -> device_msisdn
-  # Remaining set is unchanged. Extra MSISDNs on the same devices are
-  # probes for the step 6 ID-user check only — they are never added
-  # to remaining, so the count cannot grow.
+  # STEP 5: msisdn-device-msisdn-id-user (one step)
+  # Hop set (msisdn-device-msisdn) may be larger than the input remaining
+  # set. IDs are looked up on that hop set, then id_user. Only original
+  # remaining MSISDNs that link to a User are excluded, so remaining
+  # after this step is always <= the input remaining set.
   # ------------------------------------------------------------------
-  log_info "========== FILTER GROUP 2 / STEP 5: msisdn_device + device_msisdn =========="
+  log_info "========== FILTER GROUP 2 / STEP 5: msisdn-device-msisdn-id-user =========="
   : > "${RUN_DIR}/step5_extra_msisdns.txt"
   : > "${RUN_DIR}/step5a_msisdn_device_pairs.txt"
   : > "${RUN_DIR}/step5b_device_msisdn_map.txt"
   : > "${RUN_DIR}/step5_device_msisdns.txt"
-  if [[ "$(count_lines "$CURRENT")" -eq 0 ]]; then
+  local step5_input_count
+  step5_input_count="$(count_lines "$CURRENT")"
+  if [[ "$step5_input_count" -eq 0 ]]; then
     log_info "No MSISDNs left after step 4; skipping remaining steps"
   else
+    log_info "step5 input remaining=${step5_input_count}: $(preview_list "$CURRENT")"
+
     local resp5a="${RESP_DIR}/step5a_msisdn_device.json"
     run_batched_glc "msisdn_device.json" "$CURRENT" "$BATCH_SIZE" "step5a_msisdn_device" "$resp5a"
     dump_related "$resp5a" "$MSISDN_TYPE" "$DEVICE_TYPE" "$CURRENT" > "${RUN_DIR}/step5a_msisdn_device_map.txt"
@@ -739,36 +743,22 @@ main() {
       done < "${RUN_DIR}/step5b_device_msisdn_map.txt"
       awk -F'|' 'NF>=2{print $2}' "${RUN_DIR}/step5b_device_msisdn_map.txt" \
         | python_parse unique --nodes-file - --out "${RUN_DIR}/step5_device_msisdns.txt"
-      log_info "step5 all MSISDNs on those devices=$(count_lines "${RUN_DIR}/step5_device_msisdns.txt"): $(preview_list "${RUN_DIR}/step5_device_msisdns.txt")"
+      log_info "step5 msisdn-device-msisdn hop MSISDNs=$(count_lines "${RUN_DIR}/step5_device_msisdns.txt"): $(preview_list "${RUN_DIR}/step5_device_msisdns.txt")"
     fi
 
     subtract_list "${RUN_DIR}/step5_device_msisdns.txt" "$CURRENT" "${RUN_DIR}/step5_extra_msisdns.txt"
-    log_info "step5 extra MSISDNs on shared devices (probe-only, not remaining)=$(count_lines "${RUN_DIR}/step5_extra_msisdns.txt"): $(preview_list "${RUN_DIR}/step5_extra_msisdns.txt")"
-    log_info "step5 remaining set unchanged at $(count_lines "$CURRENT") MSISDN(s)"
-  fi
-  finish_step "STEP 5 device lookup" "$CURRENT"
-
-  # ------------------------------------------------------------------
-  # STEP 6: msisdn_id -> id_user
-  # Lookup IDs for remaining + extra device MSISDNs. Exclude a remaining
-  # MSISDN if its own ID has a User, or if it shares a device with an extra
-  # MSISDN whose ID has a User.
-  # ------------------------------------------------------------------
-  log_info "========== FILTER GROUP 2 / STEP 6: msisdn_id + id_user =========="
-  if [[ "$(count_lines "$CURRENT")" -eq 0 ]]; then
-    log_info "No MSISDNs left after step 5; skipping remaining steps"
-  else
-    local step6_lookup="${RUN_DIR}/step6_lookup_msisdns.txt"
-    merge_unique "$step6_lookup" "$CURRENT" "${RUN_DIR}/step5_extra_msisdns.txt"
-    log_info "step6 ID lookup set=$(count_lines "$step6_lookup") (remaining=$(count_lines "$CURRENT") extra=$(count_lines "${RUN_DIR}/step5_extra_msisdns.txt"))"
+    local hop_file="${RUN_DIR}/step5_hop_msisdns.txt"
+    merge_unique "$hop_file" "$CURRENT" "${RUN_DIR}/step5_extra_msisdns.txt"
+    log_info "step5 extra hop MSISDNs (not remaining)=$(count_lines "${RUN_DIR}/step5_extra_msisdns.txt"): $(preview_list "${RUN_DIR}/step5_extra_msisdns.txt")"
+    log_info "step5 hop set msisdn-device-msisdn=$(count_lines "$hop_file") (>= input remaining ${step5_input_count}); remaining is still ${step5_input_count}"
 
     local resp6a="${RESP_DIR}/step6a_msisdn_id.json"
-    run_batched_glc "msisdn_id.json" "$step6_lookup" "$BATCH_SIZE" "step6a_msisdn_id" "$resp6a"
+    run_batched_glc "msisdn_id.json" "$hop_file" "$BATCH_SIZE" "step6a_msisdn_id" "$resp6a"
     python_parse relations \
       --response "$resp6a" \
       --from-type "$MSISDN_TYPE" \
       --to-type "$ID_TYPE" \
-      --candidates "$step6_lookup" > "${RUN_DIR}/step6a_msisdn_id_map.txt"
+      --candidates "$hop_file" > "${RUN_DIR}/step6a_msisdn_id_map.txt"
     while IFS='|' read -r msisdn ident || [[ -n "${msisdn:-}" ]]; do
       [[ -n "$msisdn" ]] || continue
       log_debug "step6a mapping ${msisdn} -> id=${ident}"
@@ -776,7 +766,7 @@ main() {
 
     awk -F'|' 'NF>=2{print $2}' "${RUN_DIR}/step6a_msisdn_id_map.txt" \
       | python_parse unique --nodes-file - --out "${RUN_DIR}/step6_ids.txt"
-    log_info "step6 IDs found=$(count_lines "${RUN_DIR}/step6_ids.txt"): $(preview_list "${RUN_DIR}/step6_ids.txt")"
+    log_info "step5 IDs from hop MSISDNs=$(count_lines "${RUN_DIR}/step6_ids.txt"): $(preview_list "${RUN_DIR}/step6_ids.txt")"
 
     local resp6b="${RESP_DIR}/step6b_id_user.json"
     if [[ "$(count_lines "${RUN_DIR}/step6_ids.txt")" -eq 0 ]]; then
@@ -796,52 +786,54 @@ main() {
       done < "${RUN_DIR}/step6b_id_user_map.txt"
     fi
 
-    local excl6="${RUN_DIR}/step6_exclude.txt"
-    : > "$excl6"
+    # All hop MSISDNs whose ID has a User. Walk back onto original remaining.
+    python_parse exclude-via-hop \
+      --first-map "${RUN_DIR}/step6a_msisdn_id_map.txt" \
+      --second-map "${RUN_DIR}/step6b_id_user_map.txt" \
+      --candidates "$hop_file" > "${RUN_DIR}/step5_dirty_msisdns.txt"
+    awk -F'|' 'NF>=1{print $1}' "${RUN_DIR}/step5_dirty_msisdns.txt" \
+      | python_parse unique --nodes-file - --out "${RUN_DIR}/step5_dirty_msisdn_ids.txt"
+    log_info "step5 hop MSISDNs linked to User=$(count_lines "${RUN_DIR}/step5_dirty_msisdn_ids.txt"): $(preview_list "${RUN_DIR}/step5_dirty_msisdn_ids.txt")"
+
+    local excl5="${RUN_DIR}/step5_exclude.txt"
+    : > "$excl5"
 
     python_parse exclude-via-hop \
       --first-map "${RUN_DIR}/step6a_msisdn_id_map.txt" \
       --second-map "${RUN_DIR}/step6b_id_user_map.txt" \
-      --candidates "$CURRENT" > "${RUN_DIR}/step6_own_id_exclude.raw"
+      --candidates "$CURRENT" > "${RUN_DIR}/step5_own_id_exclude.raw"
     while IFS='|' read -r msisdn detail || [[ -n "${msisdn:-}" ]]; do
       [[ -n "$msisdn" ]] || continue
-      echo "$msisdn" >> "$excl6"
-      record_exclusion "$msisdn" "6-id_user" "id_has_user" "$detail"
-    done < "${RUN_DIR}/step6_own_id_exclude.raw"
-
-    python_parse exclude-via-hop \
-      --first-map "${RUN_DIR}/step6a_msisdn_id_map.txt" \
-      --second-map "${RUN_DIR}/step6b_id_user_map.txt" \
-      --candidates "${RUN_DIR}/step5_extra_msisdns.txt" > "${RUN_DIR}/step6_extra_id_hits.txt"
-    awk -F'|' 'NF>=1{print $1}' "${RUN_DIR}/step6_extra_id_hits.txt" \
-      | python_parse unique --nodes-file - --out "${RUN_DIR}/step6_extra_id_hit_msisdns.txt"
-    log_info "step6 extra MSISDNs whose ID has a User=$(count_lines "${RUN_DIR}/step6_extra_id_hit_msisdns.txt"): $(preview_list "${RUN_DIR}/step6_extra_id_hit_msisdns.txt")"
+      echo "$msisdn" >> "$excl5"
+      record_exclusion "$msisdn" "5-msisdn_device_id_user" "id_has_user" "$detail"
+    done < "${RUN_DIR}/step5_own_id_exclude.raw"
 
     python_parse exclude-shared-device \
       --remaining "$CURRENT" \
       --msisdn-device-map "${RUN_DIR}/step5a_msisdn_device_pairs.txt" \
       --device-msisdn-map "${RUN_DIR}/step5b_device_msisdn_map.txt" \
-      --dirty-map "${RUN_DIR}/step6_extra_id_hits.txt" > "${RUN_DIR}/step6_shared_device_exclude.raw"
+      --dirty-map "${RUN_DIR}/step5_dirty_msisdns.txt" > "${RUN_DIR}/step5_shared_device_exclude.raw"
     while IFS='|' read -r msisdn detail || [[ -n "${msisdn:-}" ]]; do
       [[ -n "$msisdn" ]] || continue
-      if grep -qxF "$msisdn" "$excl6" 2>/dev/null; then
+      if grep -qxF "$msisdn" "$excl5" 2>/dev/null; then
         continue
       fi
-      echo "$msisdn" >> "$excl6"
-      record_exclusion "$msisdn" "6-id_user" "shared_device_id_has_user" "$detail"
-    done < "${RUN_DIR}/step6_shared_device_exclude.raw"
+      echo "$msisdn" >> "$excl5"
+      record_exclusion "$msisdn" "5-msisdn_device_id_user" "linked_id_user" "$detail"
+    done < "${RUN_DIR}/step5_shared_device_exclude.raw"
 
-    apply_exclusions "$CURRENT" "$excl6" "$REMAINING"
+    apply_exclusions "$CURRENT" "$excl5" "$REMAINING"
     cp "$REMAINING" "$CURRENT"
+    log_info "step5 remaining after walk-back=$(count_lines "$CURRENT") (was ${step5_input_count}; hop set is not remaining)"
   fi
-  finish_step "STEP 6 msisdn_id/id_user" "$CURRENT"
+  finish_step "STEP 5 msisdn-device-msisdn-id-user" "$CURRENT"
 
   # ------------------------------------------------------------------
   # STEP 7: user_sub + sub_user (slow, batched)
   # ------------------------------------------------------------------
   log_info "========== FILTER GROUP 3 / STEP 7: user_sub + sub_user =========="
   if [[ "$(count_lines "$CURRENT")" -eq 0 ]]; then
-    log_info "No MSISDNs left after step 6; skipping step 7"
+    log_info "No MSISDNs left after step 5; skipping step 7"
   else
     local resp7a="${RESP_DIR}/step7a_user_sub.json"
     local resp7b="${RESP_DIR}/step7b_sub_user.json"

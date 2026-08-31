@@ -80,7 +80,7 @@ expected_excluded = {
     "201033008757": "2-wallet_profile",
     "201111111111": "3-wallet_status",
     "201222222222": "4-line_status",
-    "201333333333": "6-id_user",
+    "201333333333": "5-msisdn_device_id_user",
     "201555555555": "7-user_sub_sub_user",
 }
 
@@ -105,10 +105,10 @@ if "201222222222" in excluded:
     if "Fraud IRSF" not in excluded["201222222222"][2]:
         errors.append("step 4 should match Fraud IRSF: %s" % (excluded["201222222222"],))
 if "201333333333" in excluded:
-    if excluded["201333333333"][1] != "shared_device_id_has_user":
-        errors.append("step 6 shared-device reason mismatch: %s" % (excluded["201333333333"],))
+    if excluded["201333333333"][1] != "linked_id_user":
+        errors.append("step 5 linked-id-user reason mismatch: %s" % (excluded["201333333333"],))
     if "201444444444" not in excluded["201333333333"][2]:
-        errors.append("step 6 shared-device detail should mention extra 201444444444: %s" % (excluded["201333333333"],))
+        errors.append("step 5 walk-back detail should mention extra 201444444444: %s" % (excluded["201333333333"],))
 if report != report_file:
     errors.append("stdout report differs from -o report file")
 if "----- REMAINING MSISDNs (2) -----" not in report:
@@ -127,10 +127,12 @@ for msisdn in input_msisdns:
     else:
         if excluded[msisdn][0] not in report:
             errors.append("excluded input %s missing step in report" % msisdn)
-if "step5 remaining set unchanged" not in log_text:
-    errors.append("log missing remaining-set-unchanged message after device lookup")
+if "hop set msisdn-device-msisdn=" not in log_text:
+    errors.append("log missing hop-set size for msisdn-device-msisdn")
 if "expanded working set" in log_text:
     errors.append("log still expands remaining after device lookup")
+if "FILTER GROUP 2 / STEP 6:" in log_text:
+    errors.append("id_user must stay inside step 5, not a separate remaining-growing step")
 remaining_counts = [int(n) for n in re.findall(r" remaining=(\d+) ", log_text)]
 if remaining_counts:
     prev = remaining_counts[0]

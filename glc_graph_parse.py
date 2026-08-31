@@ -390,7 +390,12 @@ def cmd_exclude_via_hop(args):
 
 
 def exclude_via_shared_device(remaining, msisdn_device_pairs, device_msisdn_pairs, dirty_rows):
-    """Exclude remaining MSISDNs that share a device with a dirty extra MSISDN."""
+    """Walk msisdn-device-msisdn-id-user back onto the original remaining set.
+
+    Remaining MSISDN R is excluded if any MSISDN on the same device
+    (sibling remaining or extra hop MSISDN) has an ID linked to a User.
+    Own-ID hits are left to exclude_via_hop.
+    """
     devices_of = {}
     for msisdn, device in msisdn_device_pairs:
         devices_of.setdefault(msisdn, [])
@@ -410,10 +415,14 @@ def exclude_via_shared_device(remaining, msisdn_device_pairs, device_msisdn_pair
         hits = []
         for device in devices_of.get(msisdn, []):
             for other in msisdns_on.get(device, []):
-                if other == msisdn or other in remaining_set:
+                if other == msisdn:
                     continue
-                if other in dirty:
-                    hits.append("device=%s extra=%s %s" % (device, other, dirty[other]))
+                if other not in dirty:
+                    continue
+                kind = "remaining" if other in remaining_set else "extra"
+                hits.append(
+                    "device=%s %s=%s %s" % (device, kind, other, dirty[other])
+                )
         if hits:
             out.append((msisdn, ";".join(hits)))
     return out
@@ -679,6 +688,15 @@ def cmd_selftest(_args):
     )
     assert shared[0][0] == "201333333333", shared
     assert "201444444444" in shared[0][1]
+
+    shared_remaining = exclude_via_shared_device(
+        ["201AAA", "201BBB"],
+        [("201AAA", "DEVX"), ("201BBB", "DEVX")],
+        [("DEVX", "201AAA"), ("DEVX", "201BBB")],
+        [("201BBB", "IDB->USERZ")],
+    )
+    assert [row[0] for row in shared_remaining] == ["201AAA"], shared_remaining
+    assert "201BBB" in shared_remaining[0][1]
 
     profile_graph = {
         "vertices": [],
