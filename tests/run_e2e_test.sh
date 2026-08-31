@@ -6,8 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-chmod 775 "$ROOT/glc_filter_clean_msisdns.sh" "$ROOT/tests/mock_glc_auto.sh"
-chmod 644 "$ROOT/glc_graph_parse.py" || true
+chmod 775 "$ROOT/glc_filter_clean_msisdns.sh" "$ROOT/tests/mock_glc_auto.sh" "$ROOT/glc_graph_parse.py"
 
 echo "=== parser selftest ==="
 python3 "$ROOT/glc_graph_parse.py" selftest
