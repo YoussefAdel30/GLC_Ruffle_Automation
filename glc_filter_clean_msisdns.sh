@@ -5,12 +5,12 @@
 # Filter a list of MSISDNs through sequential GLC relation checks.
 # Output is a report with remaining MSISDNs and, for every original
 # input MSISDN that was dropped, the exclusion step and reason.
-
 #
 # Usage:
 #   chmod 775 glc_filter_clean_msisdns.sh
 #   ./glc_filter_clean_msisdns.sh -i msisdns.txt
-#   ./glc_filter_clean_msisdns.sh -i msisdns.txt -o clean.txt --date-from "2026/08/01 00:00:00" --date-to "2026/08/31 23:59:59"
+#   ./glc_filter_clean_msisdns.sh -i msisdns.txt -o report.txt
+# Analysis dates default to today-45 days 00:00:00 through today 23:59:59.
 #
 # Input file format: one MSISDN per line. Blank lines and # comments are ignored.
 #
@@ -55,6 +55,7 @@ OUTPUT_FILE=""
 RUN_DIR=""
 DATE_FROM=""
 DATE_TO=""
+ANALYSIS_DAYS=45
 BATCH_SIZE=50
 SLOW_BATCH_SIZE=30
 GLC_AUTO="${GLC_AUTO:-$DEFAULT_GLC_AUTO}"
@@ -78,8 +79,10 @@ Options:
   -i, --input FILE             MSISDN list (one per line). Use - for stdin.
   -o, --output FILE            Write the full report to FILE
   -d, --run-dir DIR            Directory for logs and raw GLC responses
-      --date-from DATE         Override dateFrom in every GLC request
-      --date-to DATE           Override dateTo in every GLC request
+      --date-from DATE         Override dateFrom (default: today minus 45 days 00:00:00)
+      --date-to DATE           Override dateTo (default: today 23:59:59)
+      --analysis-days N        Rolling window in days when dates are not overridden
+                               (default: 45 = 1.5 months)
       --batch-size N           Batch size for normal GLC calls (default: ${BATCH_SIZE})
       --slow-batch-size N      Batch size for user_sub/sub_user (default: ${SLOW_BATCH_SIZE})
       --glc-auto PATH          Path to glc_auto.sh
@@ -245,18 +248,29 @@ build_request_file() {
   local template="$1"
   local nodes_file="$2"
   local out="$3"
-  local extra=()
-  if [[ -n "$DATE_FROM" ]]; then
-    extra+=(--date-from "$DATE_FROM")
-  fi
-  if [[ -n "$DATE_TO" ]]; then
-    extra+=(--date-to "$DATE_TO")
-  fi
   python_parse build-request \
     --template "$template" \
     --nodes-file "$nodes_file" \
     --out "$out" \
-    "${extra[@]}"
+    --date-from "$DATE_FROM" \
+    --date-to "$DATE_TO"
+}
+
+set_analysis_dates() {
+  local computed cfrom cto
+  computed="$(python3 - "$ANALYSIS_DAYS" <<'PY'
+from datetime import datetime, timedelta
+import sys
+days = int(sys.argv[1])
+now = datetime.now()
+print((now - timedelta(days=days)).strftime("%Y/%m/%d 00:00:00"))
+print(now.strftime("%Y/%m/%d 23:59:59"))
+PY
+)"
+  cfrom="$(printf '%s\n' "$computed" | sed -n '1p')"
+  cto="$(printf '%s\n' "$computed" | sed -n '2p')"
+  [[ -n "$DATE_FROM" ]] || DATE_FROM="$cfrom"
+  [[ -n "$DATE_TO" ]] || DATE_TO="$cto"
 }
 
 call_glc() {
@@ -449,6 +463,7 @@ parse_args() {
       -d|--run-dir) RUN_DIR="$2"; shift 2 ;;
       --date-from) DATE_FROM="$2"; shift 2 ;;
       --date-to) DATE_TO="$2"; shift 2 ;;
+      --analysis-days) ANALYSIS_DAYS="$2"; shift 2 ;;
       --batch-size) BATCH_SIZE="$2"; shift 2 ;;
       --slow-batch-size) SLOW_BATCH_SIZE="$2"; shift 2 ;;
       --glc-auto) GLC_AUTO="$2"; shift 2 ;;
@@ -475,6 +490,7 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  set_analysis_dates
 
   [[ -n "$INPUT_FILE" ]] || fail "input MSISDN file is required (see --help)"
   [[ -f "$PARSE_PY" ]] || fail "missing parser helper: $PARSE_PY"
@@ -502,7 +518,7 @@ main() {
   log_info "glc_auto=${GLC_AUTO}"
   log_info "request_types=${REQUEST_TYPES}"
   log_info "batch_size=${BATCH_SIZE} slow_batch_size=${SLOW_BATCH_SIZE}"
-  log_info "date_from=${DATE_FROM:-'(from templates)'} date_to=${DATE_TO:-'(from templates)'}"
+  log_info "analysis_days=${ANALYSIS_DAYS} date_from=${DATE_FROM} date_to=${DATE_TO}"
   log_info "wallet_profile_exclude=${WALLET_PROFILE_EXCLUDE}"
   log_info "wallet_status_exclude=${WALLET_STATUS_EXCLUDE}"
   if [[ "$LINE_STATUS_EXCLUDE_SET" -eq 1 ]]; then

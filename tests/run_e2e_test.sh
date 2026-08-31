@@ -44,10 +44,13 @@ cat "$TMP/run/excluded.txt"
 echo "--- log (tail) ---"
 tail -n 20 "$TMP/run/filter.log"
 
-python3 - "$TMP/run/clean_msisdns.txt" "$TMP/run/excluded.txt" "$TMP/stdout.txt" "$TMP/report.txt" "$ROOT/tests/fixtures/input_msisdns.txt" <<'PY'
+python3 - "$TMP/run/clean_msisdns.txt" "$TMP/run/excluded.txt" "$TMP/stdout.txt" "$TMP/report.txt" "$ROOT/tests/fixtures/input_msisdns.txt" "$TMP/run/responses" <<'PY'
+import json
+import os
 import sys
+from datetime import datetime, timedelta
 
-clean_path, excluded_path, stdout_path, report_path, input_path = sys.argv[1:6]
+clean_path, excluded_path, stdout_path, report_path, input_path, resp_dir = sys.argv[1:7]
 clean = [ln.strip() for ln in open(clean_path) if ln.strip()]
 report = open(stdout_path).read()
 report_file = open(report_path).read()
@@ -115,6 +118,25 @@ for msisdn in input_msisdns:
             errors.append("excluded input %s missing step in report" % msisdn)
 if "201444444444" not in report or "not in input" not in report:
     errors.append("device-discovered exclusion 201444444444 missing extra section")
+
+expected_from = (datetime.now() - timedelta(days=45)).strftime("%Y/%m/%d 00:00:00")
+expected_to = datetime.now().strftime("%Y/%m/%d 23:59:59")
+req_files = [
+    os.path.join(resp_dir, name)
+    for name in os.listdir(resp_dir)
+    if name.endswith(".request.json")
+]
+if not req_files:
+    errors.append("no GLC request JSON files found to check analysis dates")
+for path in req_files:
+    with open(path) as fh:
+        req = json.load(fh)
+    if req.get("dateFrom") != expected_from or req.get("dateTo") != expected_to:
+        errors.append(
+            "request %s has dateFrom=%s dateTo=%s expected %s .. %s"
+            % (path, req.get("dateFrom"), req.get("dateTo"), expected_from, expected_to)
+        )
+
 if errors:
     raise SystemExit("E2E FAILED:\n- " + "\n- ".join(errors))
 print("e2e_ok")
