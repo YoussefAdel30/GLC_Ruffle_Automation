@@ -44,16 +44,18 @@ cat "$TMP/run/excluded.txt"
 echo "--- log (tail) ---"
 tail -n 20 "$TMP/run/filter.log"
 
-python3 - "$TMP/run/clean_msisdns.txt" "$TMP/run/excluded.txt" "$TMP/stdout.txt" "$TMP/report.txt" "$ROOT/tests/fixtures/input_msisdns.txt" "$TMP/run/responses" <<'PY'
+python3 - "$TMP/run/clean_msisdns.txt" "$TMP/run/excluded.txt" "$TMP/stdout.txt" "$TMP/report.txt" "$ROOT/tests/fixtures/input_msisdns.txt" "$TMP/run/responses" "$TMP/run/filter.log" <<'PY'
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 
-clean_path, excluded_path, stdout_path, report_path, input_path, resp_dir = sys.argv[1:7]
+clean_path, excluded_path, stdout_path, report_path, input_path, resp_dir, log_path = sys.argv[1:8]
 clean = [ln.strip() for ln in open(clean_path) if ln.strip()]
 report = open(stdout_path).read()
 report_file = open(report_path).read()
+log_text = open(log_path).read()
 excluded = {}
 for ln in open(excluded_path):
     ln = ln.strip()
@@ -72,19 +74,21 @@ for ln in open(input_path):
         seen.add(item)
         input_msisdns.append(item)
 
-expected_clean = ["201666666666", "201333333333", "201777777777"]
+expected_clean = ["201666666666", "201777777777"]
 expected_excluded = {
     "201066257228": "1-msisdn_user",
     "201033008757": "2-wallet_profile",
     "201111111111": "3-wallet_status",
     "201222222222": "4-line_status",
-    "201444444444": "6-id_user",
+    "201333333333": "6-id_user",
     "201555555555": "7-user_sub_sub_user",
 }
 
 errors = []
 if clean != expected_clean:
     errors.append("clean mismatch: got %s expected %s" % (clean, expected_clean))
+if "201444444444" in clean:
+    errors.append("probe-only device sibling 201444444444 must not enter remaining")
 for msisdn, step in expected_excluded.items():
     if msisdn not in excluded:
         errors.append("missing exclusion for %s" % msisdn)
@@ -100,10 +104,17 @@ if "201222222222" in excluded:
         errors.append("step 4 reason should be suspension_reason: %s" % (excluded["201222222222"],))
     if "Fraud IRSF" not in excluded["201222222222"][2]:
         errors.append("step 4 should match Fraud IRSF: %s" % (excluded["201222222222"],))
+if "201333333333" in excluded:
+    if excluded["201333333333"][1] != "shared_device_id_has_user":
+        errors.append("step 6 shared-device reason mismatch: %s" % (excluded["201333333333"],))
+    if "201444444444" not in excluded["201333333333"][2]:
+        errors.append("step 6 shared-device detail should mention extra 201444444444: %s" % (excluded["201333333333"],))
 if report != report_file:
     errors.append("stdout report differs from -o report file")
-if "----- REMAINING MSISDNs (3) -----" not in report:
+if "----- REMAINING MSISDNs (2) -----" not in report:
     errors.append("report missing remaining header: %s" % report[:400])
+if "not in input" in report or "remaining_added_via_device" in report:
+    errors.append("report must not grow remaining with device siblings: %s" % report[:800])
 for msisdn in expected_clean:
     remaining_section = report.split("----- EXCLUDED INPUT MSISDNs")[0]
     if msisdn not in remaining_section:
@@ -116,8 +127,18 @@ for msisdn in input_msisdns:
     else:
         if excluded[msisdn][0] not in report:
             errors.append("excluded input %s missing step in report" % msisdn)
-if "201444444444" not in report or "not in input" not in report:
-    errors.append("device-discovered exclusion 201444444444 missing extra section")
+if "step5 remaining set unchanged" not in log_text:
+    errors.append("log missing remaining-set-unchanged message after device lookup")
+if "expanded working set" in log_text:
+    errors.append("log still expands remaining after device lookup")
+remaining_counts = [int(n) for n in re.findall(r" remaining=(\d+) ", log_text)]
+if remaining_counts:
+    prev = remaining_counts[0]
+    for n in remaining_counts[1:]:
+        if n > prev:
+            errors.append("remaining count increased in log: %s" % remaining_counts)
+            break
+        prev = n
 
 expected_from = (datetime.now() - timedelta(days=45)).strftime("%Y/%m/%d 00:00:00")
 expected_to = datetime.now().strftime("%Y/%m/%d 23:59:59")

@@ -389,6 +389,48 @@ def cmd_exclude_via_hop(args):
         print("%s|%s" % (msisdn, ";".join(details)))
 
 
+def exclude_via_shared_device(remaining, msisdn_device_pairs, device_msisdn_pairs, dirty_rows):
+    """Exclude remaining MSISDNs that share a device with a dirty extra MSISDN."""
+    devices_of = {}
+    for msisdn, device in msisdn_device_pairs:
+        devices_of.setdefault(msisdn, [])
+        if device not in devices_of[msisdn]:
+            devices_of[msisdn].append(device)
+    msisdns_on = {}
+    for device, msisdn in device_msisdn_pairs:
+        msisdns_on.setdefault(device, [])
+        if msisdn not in msisdns_on[device]:
+            msisdns_on[device].append(msisdn)
+    dirty = {}
+    for row in dirty_rows:
+        dirty[row[0]] = row[1]
+    remaining_set = set(remaining)
+    out = []
+    for msisdn in remaining:
+        hits = []
+        for device in devices_of.get(msisdn, []):
+            for other in msisdns_on.get(device, []):
+                if other == msisdn or other in remaining_set:
+                    continue
+                if other in dirty:
+                    hits.append("device=%s extra=%s %s" % (device, other, dirty[other]))
+        if hits:
+            out.append((msisdn, ";".join(hits)))
+    return out
+
+
+def cmd_exclude_shared_device(args):
+    remaining = _read_lines(args.remaining)
+    msisdn_device_pairs = _parse_pairs(args.msisdn_device_map)
+    device_msisdn_pairs = _parse_pairs(args.device_msisdn_map)
+    dirty_rows = _parse_pairs(args.dirty_map)
+    rows = exclude_via_shared_device(
+        remaining, msisdn_device_pairs, device_msisdn_pairs, dirty_rows
+    )
+    for msisdn, detail in rows:
+        print("%s|%s" % (msisdn, detail))
+
+
 def cmd_unique(args):
     items = _read_lines(args.nodes_file)
     _write_lines(args.out, unique_preserve(items))
@@ -629,6 +671,15 @@ def cmd_selftest(_args):
     hop_none = exclude_via_hop(id_pairs, [], ["201066257228"])
     assert hop_none == []
 
+    shared = exclude_via_shared_device(
+        ["201333333333", "201777777777"],
+        [("201333333333", "DEV1"), ("201777777777", "DEV2")],
+        [("DEV1", "201333333333"), ("DEV1", "201444444444"), ("DEV2", "201777777777")],
+        [("201444444444", "ID444->USERX")],
+    )
+    assert shared[0][0] == "201333333333", shared
+    assert "201444444444" in shared[0][1]
+
     profile_graph = {
         "vertices": [],
         "edges": [
@@ -823,6 +874,13 @@ def build_parser():
     p.add_argument("--second-map", required=True)
     p.add_argument("--candidates")
     p.set_defaults(func=cmd_exclude_via_hop)
+
+    p = sub.add_parser("exclude-shared-device")
+    p.add_argument("--remaining", required=True)
+    p.add_argument("--msisdn-device-map", required=True)
+    p.add_argument("--device-msisdn-map", required=True)
+    p.add_argument("--dirty-map", required=True)
+    p.set_defaults(func=cmd_exclude_shared_device)
 
     p = sub.add_parser("unique")
     p.add_argument("--nodes-file", required=True)
