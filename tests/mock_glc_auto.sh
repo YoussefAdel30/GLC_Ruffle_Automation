@@ -172,13 +172,13 @@ elif link == 11:
     out = graph(values, build_pairs(values, MSISDN_IDS), 1, 1003, 11)
 elif link == 555:
     out = graph(values, build_pairs(values, ID_USERS), 1003, 1001, 555)
-elif link == 82:
+elif link in (82, 103):
     pairs = build_pairs(values, SUB_RELATIONS)
     if "1001" in disp.split(","):
         user_pairs = [(src, "SUBUSER") for src, _dst in pairs]
-        out = graph(values, user_pairs, 1, 1001, 82)
+        out = graph(values, user_pairs, 1, 1001, link)
     else:
-        out = graph(values, pairs, 1, 1, 82)
+        out = graph(values, pairs, 1, 1, link)
 else:
     out = graph(values, [], 1, 1, link)
 
