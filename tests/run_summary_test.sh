@@ -16,6 +16,8 @@ python3 "$ROOT/glc_graph_summary.py" summarize \
   --out "$tmp/line.txt"
 cat "$tmp/line.txt"
 grep -q "There are 3 node(s) of type MSISDN" "$tmp/line.txt"
+grep -q "There are 2 Line Status label node(s)" "$tmp/line.txt"
+grep -q "Distinct Line Status graph nodes: 2" "$tmp/line.txt"
 grep -q "Fraud" "$tmp/line.txt"
 
 echo "=== summarize voicecall fixture ==="

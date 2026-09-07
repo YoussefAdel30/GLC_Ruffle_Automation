@@ -269,10 +269,15 @@ def summarize_value_link(kind_edges, input_names, top_n):
     reason_counter = Counter()
     linked_inputs = set()
     dest_is_line = False
+    dest_type_name = "value"
+    raw_dests = set()
+    parsed_combos = set()
     for edge in kind_edges:
         src, dst, type_src, type_dst = directed_names(edge)
         if type_src in VALUE_TYPE_IDS and type_dst not in VALUE_TYPE_IDS:
             src, dst, type_src, type_dst = dst, src, type_dst, type_src
+        dest_type_name = known_type_name(type_dst)
+        raw_dests.add(dst)
         if type_dst == LINE_STATUS_TYPE_ID:
             dest_is_line = True
             status, reason = line_status_parts(dst)
@@ -282,8 +287,10 @@ def summarize_value_link(kind_edges, input_names, top_n):
                 status_counter[status] += 1
             if reason:
                 reason_counter[reason] += 1
+            parsed_combos.add((status or dst, reason))
         else:
             value_counter[dst] += 1
+            parsed_combos.add((dst, ""))
         if src in input_names:
             linked_inputs.add(src)
     lines = []
@@ -307,6 +314,15 @@ def summarize_value_link(kind_edges, input_names, top_n):
                     (" + %s more reasons" % extra_r) if extra_r else "",
                 )
             )
+        lines.append(
+            "  Distinct %s graph nodes: %s "
+            "(one node per unique label; timestamps make Suspended labels unique)."
+            % (dest_type_name, len(raw_dests))
+        )
+        lines.append(
+            "  Distinct status/reason after stripping timestamps: %s."
+            % len(parsed_combos)
+        )
     else:
         lines.append(
             "  Values: %s%s."
@@ -315,6 +331,11 @@ def summarize_value_link(kind_edges, input_names, top_n):
                 (" + %s more (%s links)" % (extra_kinds, extra_n)) if extra_kinds else "",
             )
         )
+        if raw_dests:
+            lines.append(
+                "  Distinct %s graph nodes: %s."
+                % (dest_type_name, len(raw_dests))
+            )
     if input_names:
         lines.append(
             "  Input nodes with this link: %s / %s."
@@ -501,10 +522,28 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         if row["isolated"]:
             extra.append("%s with no neighbours" % row["isolated"])
         suffix = " (%s)" % ", ".join(extra) if extra else ""
-        lines.append(
-            "There are %s node(s) of type %s%s."
-            % (row["count"], row["type_name"], suffix)
-        )
+        if row["type_id"] in VALUE_TYPE_IDS:
+            lines.append(
+                "There are %s %s label node(s)%s."
+                % (row["count"], row["type_name"], suffix)
+            )
+            if row["type_id"] == LINE_STATUS_TYPE_ID:
+                lines.append(
+                    "  These are unique labels, not one node per MSISDN. "
+                    "A shared label (e.g. Active) is one node; "
+                    "Suspended labels that differ only by timestamp are separate nodes."
+                )
+            else:
+                lines.append(
+                    "  These are unique labels, not one node per MSISDN. "
+                    "Several MSISDNs can share the same %s node."
+                    % row["type_name"]
+                )
+        else:
+            lines.append(
+                "There are %s node(s) of type %s%s."
+                % (row["count"], row["type_name"], suffix)
+            )
 
     edge_groups = group_edges(data)
     lines.append("")
@@ -657,7 +696,10 @@ def cmd_selftest(_args):
     }
     text = build_summary(req, _sample_line_status(), top_n=8)
     assert "There are 3 node(s) of type MSISDN" in text, text
-    assert "Line Status" in text
+    assert "There are 2 Line Status label node(s)" in text, text
+    assert "unique labels, not one node per MSISDN" in text, text
+    assert "Distinct Line Status graph nodes: 2" in text, text
+    assert "Distinct status/reason after stripping timestamps: 2" in text, text
     assert "Active" in text
     assert "Fraud" in text
     assert "Suspended" in text
