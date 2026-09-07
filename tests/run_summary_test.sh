@@ -15,10 +15,14 @@ python3 "$ROOT/glc_graph_summary.py" summarize \
   --response "$ROOT/tests/fixtures/summary_line_status_response.json" \
   --out "$tmp/line.txt"
 cat "$tmp/line.txt"
-grep -q "There are 3 node(s) of type MSISDN" "$tmp/line.txt"
-grep -q "There are 2 Line Status label node(s)" "$tmp/line.txt"
-grep -q "Distinct Line Status graph nodes: 2" "$tmp/line.txt"
+grep -q "3 MSISDN nodes" "$tmp/line.txt"
+grep -q "2 Line Status nodes" "$tmp/line.txt"
+grep -q "There are 2 different Line Status nodes" "$tmp/line.txt"
 grep -q "Fraud" "$tmp/line.txt"
+if grep -q "linkTypeId" "$tmp/line.txt"; then
+  echo "unexpected linkTypeId in business report" >&2
+  exit 1
+fi
 
 echo "=== summarize voicecall fixture ==="
 python3 "$ROOT/glc_graph_summary.py" summarize \
@@ -27,7 +31,7 @@ python3 "$ROOT/glc_graph_summary.py" summarize \
   --out "$tmp/voice.txt"
 cat "$tmp/voice.txt"
 grep -q "VoiceCall" "$tmp/voice.txt"
-grep -q "Direct relations among inputs" "$tmp/voice.txt"
+grep -q "Direct links between starting numbers" "$tmp/voice.txt"
 grep -q "201111111111 -> 201222222222" "$tmp/voice.txt"
 grep -q "201999999999" "$tmp/voice.txt"
 
