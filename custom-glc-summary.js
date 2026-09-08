@@ -719,12 +719,53 @@
     return lines.join("\n") + "\n";
   }
 
+  function looksLikeGraph(data) {
+    return !!(data && (Array.isArray(data.vertices) || Array.isArray(data.edges)));
+  }
+
   function parseGraphResponse(raw) {
     var data = raw;
-    if (typeof data === "string") data = JSON.parse(data);
-    if (data && !data.vertices && data.data && data.data.vertices) data = data.data;
-    if (data && !data.vertices && data.result && data.result.vertices) data = data.result;
+    if (data == null) return data;
+    if (typeof data === "string") {
+      var trimmed = data.replace(/^\uFEFF/, "").trim();
+      if (!trimmed) return null;
+      data = JSON.parse(trimmed);
+    }
+    if (typeof data !== "object") return data;
+    if (looksLikeGraph(data)) return data;
+    if (data.data && looksLikeGraph(data.data)) return data.data;
+    if (data.result && looksLikeGraph(data.result)) return data.result;
+    if (data.body && looksLikeGraph(data.body)) return data.body;
+    if (data.graph && looksLikeGraph(data.graph)) return data.graph;
+    if (data.graphData && looksLikeGraph(data.graphData)) return data.graphData;
     return data;
+  }
+
+  function readXhrBody(xhr) {
+    var rt = "";
+    try {
+      rt = xhr.responseType || "";
+    } catch (err) {
+      rt = "";
+    }
+    if (rt && rt !== "text") {
+      try {
+        if (xhr.response != null && xhr.response !== "") return xhr.response;
+      } catch (err) {
+        /* fall through */
+      }
+    }
+    try {
+      if (xhr.responseText) return xhr.responseText;
+    } catch (err) {
+      /* responseType json: responseText is not readable */
+    }
+    try {
+      if (xhr.response != null && xhr.response !== "") return xhr.response;
+    } catch (err2) {
+      /* ignore */
+    }
+    return null;
   }
 
   function applyPair(req, key, value) {
@@ -798,6 +839,8 @@
     buildSummary: buildSummary,
     parseRequestBody: parseRequestBody,
     parseGraphResponse: parseGraphResponse,
+    looksLikeGraph: looksLikeGraph,
+    readXhrBody: readXhrBody,
     isSearchUrl: isSearchUrl
   };
 
@@ -813,6 +856,7 @@
   var observer = null;
   var active = false;
   var pending = null;
+  var lastSearchReq = {};
   var hooksInstalled = false;
 
   function log() {
@@ -848,31 +892,115 @@
     return null;
   }
 
+  function isGlcComponent(cmp) {
+    return !!(
+      cmp &&
+      (typeof cmp.setCytoscapeData === "function" ||
+        typeof cmp.searchNodes === "function" ||
+        typeof cmp.goSearch === "function")
+    );
+  }
+
+  function findGlcComponent() {
+    if (!window.ng) return null;
+    var start = getOkButton();
+    if (!start) return null;
+    var el = start;
+    var hops = 0;
+    while (el && hops < 40) {
+      try {
+        if (typeof window.ng.getOwningComponent === "function") {
+          var owner = window.ng.getOwningComponent(el);
+          if (isGlcComponent(owner)) return owner;
+        }
+      } catch (err) {
+        /* ignore */
+      }
+      try {
+        if (typeof window.ng.getComponent === "function") {
+          var cmp = window.ng.getComponent(el);
+          if (isGlcComponent(cmp)) return cmp;
+        }
+      } catch (err2) {
+        /* ignore */
+      }
+      el = el.parentElement;
+      hops++;
+    }
+    return null;
+  }
+
+  function deliverCapture(captured) {
+    if (!pending) return false;
+    var data = captured && captured.data;
+    try {
+      data = parseGraphResponse(data);
+    } catch (err) {
+      log("skip payload, not JSON yet", err && err.message ? err.message : err);
+      return false;
+    }
+    if (!looksLikeGraph(data)) {
+      log(
+        "skip payload, no vertices/edges",
+        data && typeof data === "object" ? Object.keys(data) : typeof data
+      );
+      return false;
+    }
+    pending.resolve({
+      req: (captured && captured.req) || lastSearchReq || {},
+      data: data
+    });
+    pending = null;
+    return true;
+  }
+
+  function hookGlcComponent(cmp) {
+    if (!cmp || typeof cmp.setCytoscapeData !== "function" || cmp.__glcSummaryHooked) {
+      return !!cmp;
+    }
+    cmp.__glcSummaryHooked = true;
+    var orig = cmp.setCytoscapeData;
+    cmp.setCytoscapeData = function (data) {
+      try {
+        var payload = data;
+        if (!looksLikeGraph(payload) && arguments.length >= 2 && Array.isArray(arguments[0])) {
+          payload = { vertices: arguments[0], edges: arguments[1] };
+        }
+        deliverCapture({ req: lastSearchReq, data: payload });
+      } catch (err) {
+        log("setCytoscapeData hook error", err);
+      }
+      return orig.apply(this, arguments);
+    };
+    log("hooked GLCComponent.setCytoscapeData");
+    return true;
+  }
+
   function installHooks() {
     if (hooksInstalled) return;
     hooksInstalled = true;
 
     function captureFromXhr(xhr, body) {
-      if (!pending || !isSearchUrl(xhr.__glcUrl)) return;
+      if (!isSearchUrl(xhr.__glcUrl)) return;
       var req = parseRequestBody(body);
+      if (req && (req.nodes || req.dateFrom || req.graphDepth)) lastSearchReq = req;
+      if (!pending) return;
+
       function succeed() {
-        if (!pending) return;
-        try {
-          var data = parseGraphResponse(xhr.responseText || xhr.response);
-          pending.resolve({ req: req, data: data });
-        } catch (err) {
-          pending.reject(err);
+        if (xhr.readyState !== 4) return;
+        var raw = readXhrBody(xhr);
+        if (raw == null || raw === "") {
+          log(
+            "searchByNodes XHR had an empty body (Angular json responseType is normal); waiting for graph data"
+          );
+          return;
         }
-        pending = null;
+        deliverCapture({ req: req, data: raw });
       }
-      function fail() {
-        if (!pending) return;
-        pending.reject(new Error("The GLC search request failed."));
-        pending = null;
-      }
-      xhr.addEventListener("load", succeed);
-      xhr.addEventListener("error", fail);
-      xhr.addEventListener("abort", fail);
+
+      xhr.addEventListener("load", function () {
+        setTimeout(succeed, 0);
+      });
     }
 
     var origOpen = XMLHttpRequest.prototype.open;
@@ -897,20 +1025,19 @@
         var p = origFetch.apply(this, arguments);
         if (pending && isSearchUrl(url)) {
           var req = parseRequestBody(init && init.body);
+          lastSearchReq = req;
           p.then(function (res) {
-            return res.clone().text().then(function (text) {
-              if (!pending) return;
-              try {
-                pending.resolve({ req: req, data: parseGraphResponse(text) });
-              } catch (err) {
-                pending.reject(err);
-              }
-              pending = null;
-            });
-          }).catch(function (err) {
-            if (!pending) return;
-            pending.reject(err);
-            pending = null;
+            return res
+              .clone()
+              .json()
+              .catch(function () {
+                return res.clone().text();
+              })
+              .then(function (body) {
+                deliverCapture({ req: req, data: body });
+              });
+          }).catch(function () {
+            /* keep waiting for setCytoscapeData */
           });
         }
         return p;
@@ -1026,6 +1153,12 @@
     ourBtn.disabled = true;
     setButtonLabel(ourBtn, "Running...", "fa fa-spinner");
     installHooks();
+    var cmp = findGlcComponent();
+    if (cmp) {
+      hookGlcComponent(cmp);
+    } else {
+      log("GLCComponent not found; will use the searchByNodes response");
+    }
     var wait = armCapture(WAIT_MS);
     try {
       okBtn.click();

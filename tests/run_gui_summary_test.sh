@@ -57,6 +57,25 @@ node -e '
     throw new Error("search URL not detected");
   }
   console.log("parseRequestBody_ok");
+' "$ROOT/custom-glc-summary.js"
+
+echo "=== empty / json XHR body handling ==="
+node -e '
+  const api = require(process.argv[1]);
+  if (api.parseGraphResponse("") !== null) throw new Error("empty string should not throw");
+  if (api.parseGraphResponse("   ") !== null) throw new Error("blank string should not throw");
+  const obj = { responseCode: 0, vertices: [{ nodeName: "1" }], edges: [] };
+  const parsed = api.parseGraphResponse(JSON.stringify(obj));
+  if (!parsed.vertices || parsed.vertices.length !== 1) throw new Error("string JSON not parsed");
+  const already = api.parseGraphResponse(obj);
+  if (already !== obj && already.vertices[0].nodeName !== "1") throw new Error("object passthrough failed");
+  const wrapped = api.parseGraphResponse({ data: obj });
+  if (!wrapped.vertices) throw new Error("wrapped data.vertices not unwrapped");
+  const xhrJson = { responseType: "json", response: obj, responseText: "" };
+  const raw = api.readXhrBody(xhrJson);
+  if (!raw || !raw.vertices) throw new Error("readXhrBody missed json response object");
+  if (!api.looksLikeGraph(obj)) throw new Error("looksLikeGraph failed");
+  console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
 
 echo "gui_summary_tests_ok"
