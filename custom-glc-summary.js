@@ -1,9 +1,9 @@
 /**
- * GLC "Run and Summarize" button for ERM Link Analysis.
+ * GLC search report for ERM Link Analysis.
  *
  * Same injection style as custom-delete.js. No Python, no files, no extra login.
- * Clicks the real Ok button (so the graph still draws), captures the
- * searchByNodes response, and shows the business report in a popup.
+ * Hooks the real Ok button (capture phase) so a normal search also captures
+ * the searchByNodes response and shows the business report in a dock.
  *
  * Install (extracted webgui.war / @app):
  *   1. Copy this file to:  webgui/@app/custom-glc-summary.js
@@ -617,9 +617,6 @@
     }
 
     var lines = [];
-    lines.push(new Array(65).join("=").slice(0, 64));
-    lines.push("GLC network report");
-    lines.push(new Array(65).join("=").slice(0, 64));
 
     var dateFrom = formatPeriod(req.dateFrom || "");
     var dateTo = formatPeriod(req.dateTo || "");
@@ -661,7 +658,6 @@
     if (!nNodes && !nLinks) {
       lines.push("");
       lines.push("This search returned no nodes and no links.");
-      lines.push(new Array(65).join("=").slice(0, 64));
       return lines.join("\n") + "\n";
     }
 
@@ -732,8 +728,6 @@
       else lines = lines.concat(summarizeIdentityLink(grp.edges, inputNames, topN));
     }
 
-    lines.push("");
-    lines.push(new Array(65).join("=").slice(0, 64));
     return lines.join("\n") + "\n";
   }
 
@@ -1155,6 +1149,8 @@
   var pending = null;
   var lastSearchReq = {};
   var hooksInstalled = false;
+  var summarizeRunning = false;
+  var boundOkHost = null;
 
   function log() {
     var args = Array.prototype.slice.call(arguments);
@@ -1809,23 +1805,42 @@
     setDockReady(text, /could not|timed out|failed/i.test(String(text || "")));
   }
 
-  function setButtonLabel(btn, label, iconClass) {
-    var icon = btn.querySelector("i");
-    if (icon && iconClass) icon.className = iconClass;
-    var text = btn.querySelector("span.button-content");
-    if (text) text.textContent = label;
+  function getOkHost() {
+    var okBtn = getOkButton();
+    if (!okBtn) return null;
+    if (okBtn.closest) {
+      var host = okBtn.closest("erm-button");
+      if (host) return host;
+    }
+    return okBtn;
   }
 
-  function runAndSummarize(ourBtn) {
-    if (ourBtn.dataset.running === "1") return;
-    var okBtn = getOkButton();
-    if (!okBtn) {
-      showModal("Could not find the Ok button on this page.");
-      return;
-    }
-    ourBtn.dataset.running = "1";
-    ourBtn.disabled = true;
-    setButtonLabel(ourBtn, "Running...", "fa fa-spinner");
+  function onOkCapture() {
+    if (summarizeRunning) return;
+    startSummarizeFromOk();
+  }
+
+  function unbindOkCapture() {
+    if (!boundOkHost) return;
+    boundOkHost.removeEventListener("click", onOkCapture, true);
+    boundOkHost = null;
+  }
+
+  function bindOkCapture() {
+    var leftover = document.querySelector("#glcRunAndSummarizeBtn");
+    if (leftover) leftover.remove();
+    var host = getOkHost();
+    if (!host) return;
+    if (host === boundOkHost) return;
+    unbindOkCapture();
+    boundOkHost = host;
+    host.addEventListener("click", onOkCapture, true);
+    log("Ok capture bound");
+  }
+
+  function startSummarizeFromOk() {
+    if (summarizeRunning) return;
+    summarizeRunning = true;
     setDockLoading();
     installHooks();
     var cmp = findGlcComponent();
@@ -1835,68 +1850,27 @@
       log("GLCComponent not found; will use the searchByNodes response");
     }
     var wait = armCapture(WAIT_MS, cmp);
-    try {
-      okBtn.click();
-    } catch (err) {
-      ourBtn.dataset.running = "0";
-      ourBtn.disabled = false;
-      setButtonLabel(ourBtn, "Run and Summarize", "fa fa-list-alt");
-      showModal("Could not click Ok.\n\n" + (err && err.message ? err.message : err));
-      return;
-    }
     startHarvestLoop(cmp);
     wait
       .then(function (captured) {
-        var text = buildSummary(captured.req, captured.data);
-        showModal(text);
+        showModal(buildSummary(captured.req, captured.data));
       })
       .catch(function (err) {
         showModal("Could not build the report.\n\n" + (err && err.message ? err.message : err));
       })
       .then(function () {
-        ourBtn.dataset.running = "0";
-        ourBtn.disabled = false;
-        setButtonLabel(ourBtn, "Run and Summarize", "fa fa-list-alt");
+        summarizeRunning = false;
       });
-  }
-
-  function injectButton() {
-    var okBtn = getOkButton();
-    if (!okBtn) return;
-    if (document.querySelector("#glcRunAndSummarizeBtn")) return;
-
-    var host = okBtn.closest ? okBtn.closest("erm-button") : okBtn.parentElement;
-    var insertAfter = host || okBtn;
-    var parent = insertAfter.parentNode;
-    if (!parent) return;
-
-    var newBtn = okBtn.cloneNode(true);
-    newBtn.id = "glcRunAndSummarizeBtn";
-    newBtn.title = "Run and Summarize";
-    newBtn.disabled = false;
-    newBtn.removeAttribute("disabled");
-    newBtn.setAttribute("aria-disabled", "false");
-    newBtn.style.marginLeft = "8px";
-    newBtn.style.pointerEvents = "auto";
-    setButtonLabel(newBtn, "Run and Summarize", "fa fa-list-alt");
-    newBtn.onclick = null;
-    newBtn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      runAndSummarize(newBtn);
-    });
-    parent.insertBefore(newBtn, insertAfter.nextSibling);
-    log("button injected");
   }
 
   function start() {
     if (observer) return;
     installHooks();
     observer = new MutationObserver(function () {
-      injectButton();
+      bindOkCapture();
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    injectButton();
+    bindOkCapture();
   }
 
   function stop() {
@@ -1904,8 +1878,10 @@
       observer.disconnect();
       observer = null;
     }
-    var btn = document.querySelector("#glcRunAndSummarizeBtn");
-    if (btn) btn.remove();
+    unbindOkCapture();
+    summarizeRunning = false;
+    var leftover = document.querySelector("#glcRunAndSummarizeBtn");
+    if (leftover) leftover.remove();
     var dock = document.getElementById("glcSummaryDock");
     if (dock) dock.remove();
   }

@@ -59,6 +59,14 @@ if grep -q "%2F" "$tmp/js-owns.txt"; then
   echo "dates still URL-encoded" >&2
   exit 1
 fi
+if grep -q "GLC network report" "$tmp/js-owns.txt"; then
+  echo "report banner title still present" >&2
+  exit 1
+fi
+if grep -qE '^={10,}$' "$tmp/js-owns.txt"; then
+  echo "report equals-line banner still present" >&2
+  exit 1
+fi
 
 echo "=== parseRequestBody FormData-like JSON string ==="
 node -e '

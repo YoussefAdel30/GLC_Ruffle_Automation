@@ -561,9 +561,6 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
                 input_names.add(node_name(vertex))
 
     lines = []
-    lines.append("=" * 64)
-    lines.append("GLC network report")
-    lines.append("=" * 64)
 
     date_from = format_period(req.get("dateFrom") or "")
     date_to = format_period(req.get("dateTo") or "")
@@ -618,7 +615,6 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
     if not n_nodes and not n_links:
         lines.append("")
         lines.append("This search returned no nodes and no links.")
-        lines.append("=" * 64)
         return "\n".join(lines) + "\n"
 
     lines.append("")
@@ -692,8 +688,6 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         else:
             lines.extend(summarize_identity_link(kind_edges, input_names, top_n))
 
-    lines.append("")
-    lines.append("=" * 64)
     return "\n".join(lines) + "\n"
 
 
