@@ -75,6 +75,11 @@ node -e '
   const raw = api.readXhrBody(xhrJson);
   if (!raw || !raw.vertices) throw new Error("readXhrBody missed json response object");
   if (!api.looksLikeGraph(obj)) throw new Error("looksLikeGraph failed");
+  const nested = api.findGraphIn({
+    status: 200,
+    body: { responseCode: 0, vertices: [{ nodeName: "201", nodeTypeId: 1 }], edges: [] }
+  });
+  if (!nested || nested.vertices[0].nodeName !== "201") throw new Error("findGraphIn missed nested body");
   console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
 

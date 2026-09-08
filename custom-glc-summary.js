@@ -720,7 +720,117 @@
   }
 
   function looksLikeGraph(data) {
-    return !!(data && (Array.isArray(data.vertices) || Array.isArray(data.edges)));
+    if (!data || typeof data !== "object") return false;
+    if (!Array.isArray(data.vertices) && !Array.isArray(data.edges)) return false;
+    var verts = data.vertices || [];
+    if (!verts.length) return true;
+    var v = verts[0] || {};
+    return !!(
+      v.nodeName ||
+      v.label ||
+      v.nodeTypeId ||
+      v.nodeType ||
+      v.nodeId ||
+      (v.data && (v.data.nodeName || v.data.id))
+    );
+  }
+
+  function findGraphIn(obj, depth, seen) {
+    depth = depth || 0;
+    seen = seen || [];
+    if (!obj || depth > 6 || seen.length > 500) return null;
+    if (typeof obj === "string") {
+      try {
+        obj = JSON.parse(obj);
+      } catch (err) {
+        return null;
+      }
+    }
+    if (typeof obj !== "object") return null;
+    if (typeof Node !== "undefined" && obj instanceof Node) return null;
+    if (seen.indexOf(obj) >= 0) return null;
+    seen.push(obj);
+    try {
+      var parsed = parseGraphResponse(obj);
+      if (looksLikeGraph(parsed)) return parsed;
+    } catch (err) {
+      /* continue */
+    }
+    if (looksLikeGraph(obj)) return obj;
+    var keys;
+    try {
+      keys = Object.keys(obj);
+    } catch (err2) {
+      return null;
+    }
+    var prefer = [
+      "vertices",
+      "edges",
+      "body",
+      "data",
+      "result",
+      "graph",
+      "graphData",
+      "searchResult",
+      "lastGraph",
+      "cytoscapeData",
+      "response"
+    ];
+    var i;
+    for (i = 0; i < prefer.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(obj, prefer[i])) continue;
+      var hit = findGraphIn(obj[prefer[i]], depth + 1, seen);
+      if (hit) return hit;
+    }
+    for (i = 0; i < keys.length && i < 80; i++) {
+      var key = keys[i];
+      var val;
+      try {
+        val = obj[key];
+      } catch (err3) {
+        continue;
+      }
+      if (!val || typeof val === "function") continue;
+      var nested = findGraphIn(val, depth + 1, seen);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function graphFromCytoscape(cy) {
+    if (!cy || typeof cy.nodes !== "function") return null;
+    var vertices = [];
+    var edges = [];
+    try {
+      cy.nodes().forEach(function (node) {
+        var d = node.data() || {};
+        var inner = d.data && typeof d.data === "object" ? d.data : d;
+        vertices.push({
+          nodeName: inner.nodeName || inner.label || inner.name || d.id,
+          nodeTypeId: inner.nodeTypeId || (inner.nodeType && inner.nodeType.nodeTypeId),
+          nodeType: inner.nodeType || d.nodeType,
+          root: inner.root || d.root,
+          highlight: inner.highlight || d.highlight,
+          neighboursCount: inner.neighboursCount
+        });
+      });
+      cy.edges().forEach(function (edge) {
+        var d = edge.data() || {};
+        var inner = d.data && typeof d.data === "object" ? d.data : d;
+        edges.push({
+          linkTypeID: inner.linkTypeID || inner.linkTypeId || (inner.linkType && inner.linkType.linkTypeId),
+          linkType: inner.linkType || d.linkType,
+          direction: inner.direction || d.direction,
+          edgeInfo: inner.edgeInfo || d.edgeInfo,
+          nodeA: inner.nodeA || { nodeName: d.source, nodeTypeId: inner.sourceTypeId },
+          nodeB: inner.nodeB || { nodeName: d.target, nodeTypeId: inner.targetTypeId }
+        });
+      });
+    } catch (err) {
+      return null;
+    }
+    if (!vertices.length && !edges.length) return null;
+    return { responseCode: 0, vertices: vertices, edges: edges };
   }
 
   function parseGraphResponse(raw) {
@@ -840,6 +950,8 @@
     parseRequestBody: parseRequestBody,
     parseGraphResponse: parseGraphResponse,
     looksLikeGraph: looksLikeGraph,
+    findGraphIn: findGraphIn,
+    graphFromCytoscape: graphFromCytoscape,
     readXhrBody: readXhrBody,
     isSearchUrl: isSearchUrl
   };
@@ -954,25 +1066,144 @@
     return true;
   }
 
-  function hookGlcComponent(cmp) {
-    if (!cmp || typeof cmp.setCytoscapeData !== "function" || cmp.__glcSummaryHooked) {
-      return !!cmp;
-    }
-    cmp.__glcSummaryHooked = true;
-    var orig = cmp.setCytoscapeData;
-    cmp.setCytoscapeData = function (data) {
-      try {
-        var payload = data;
-        if (!looksLikeGraph(payload) && arguments.length >= 2 && Array.isArray(arguments[0])) {
-          payload = { vertices: arguments[0], edges: arguments[1] };
+  function tapObservable(obs, onNext) {
+    if (!obs || typeof obs.subscribe !== "function") return obs;
+    if (obs.__glcSummaryTapped) return obs;
+    obs.__glcSummaryTapped = true;
+    var origSubscribe = obs.subscribe;
+    obs.subscribe = function (observerOrNext, error, complete) {
+      function notify(value) {
+        try {
+          onNext(value);
+        } catch (err) {
+          log("observable tap error", err);
         }
-        deliverCapture({ req: lastSearchReq, data: payload });
-      } catch (err) {
-        log("setCytoscapeData hook error", err);
       }
-      return orig.apply(this, arguments);
+      if (observerOrNext && typeof observerOrNext !== "function") {
+        var observer = observerOrNext;
+        return origSubscribe.call(this, {
+          next: function (value) {
+            notify(value);
+            if (observer.next) observer.next(value);
+          },
+          error: function (err) {
+            if (observer.error) observer.error(err);
+          },
+          complete: function () {
+            if (observer.complete) observer.complete();
+          }
+        });
+      }
+      return origSubscribe.call(
+        this,
+        function (value) {
+          notify(value);
+          if (typeof observerOrNext === "function") observerOrNext(value);
+        },
+        error,
+        complete
+      );
     };
-    log("hooked GLCComponent.setCytoscapeData");
+    return obs;
+  }
+
+  function findCy(cmp) {
+    if (!cmp || typeof cmp !== "object") return null;
+    var names = ["cy", "cytoscape", "cyInstance", "_cy", "cyGraph"];
+    var i;
+    for (i = 0; i < names.length; i++) {
+      if (cmp[names[i]] && typeof cmp[names[i]].nodes === "function") return cmp[names[i]];
+    }
+    var nested = [cmp.cytoscapeWrapper, cmp.cyComponent, cmp.graphComponent];
+    for (i = 0; i < nested.length; i++) {
+      var found = findCy(nested[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function tryHarvest(cmp) {
+    if (!pending || !cmp) return false;
+    var found = findGraphIn(cmp, 0, []);
+    if (found && deliverCapture({ req: lastSearchReq, data: found })) {
+      log("harvested graph JSON from GLC component");
+      return true;
+    }
+    var cy = findCy(cmp);
+    if (!cy && typeof window !== "undefined" && window.cy && typeof window.cy.nodes === "function") {
+      cy = window.cy;
+    }
+    if (cy) {
+      var fromCy = graphFromCytoscape(cy);
+      if (fromCy && deliverCapture({ req: lastSearchReq, data: fromCy })) {
+        log("harvested graph from Cytoscape instance");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function urlFromArgs(args) {
+    for (var i = 0; i < args.length; i++) {
+      if (typeof args[i] === "string" && isSearchUrl(args[i])) return args[i];
+    }
+    return "";
+  }
+
+  function hookGlcComponent(cmp) {
+    if (!cmp) return false;
+    if (typeof cmp.sendPostRequest === "function" && !cmp.__glcSummarySendHooked) {
+      cmp.__glcSummarySendHooked = true;
+      var origSend = cmp.sendPostRequest;
+      cmp.sendPostRequest = function () {
+        var formData = arguments[0];
+        var url = urlFromArgs(arguments);
+        var result = origSend.apply(this, arguments);
+        if (!pending) return result;
+        if (url || formData) {
+          var parsed = parseRequestBody(formData);
+          if (parsed && (parsed.nodes || parsed.graphDepth || parsed.dateFrom)) lastSearchReq = parsed;
+        }
+        return tapObservable(result, function (value) {
+          log(
+            "sendPostRequest next",
+            typeof value,
+            value && typeof value === "object" ? Object.keys(value).slice(0, 12) : ""
+          );
+          if (deliverCapture({ req: lastSearchReq, data: value })) return;
+          var nested = findGraphIn(value, 0, []);
+          if (nested) deliverCapture({ req: lastSearchReq, data: nested });
+        });
+      };
+      log("hooked GLCComponent.sendPostRequest");
+    }
+    if (typeof cmp.setCytoscapeData === "function" && !cmp.__glcSummaryHooked) {
+      cmp.__glcSummaryHooked = true;
+      var orig = cmp.setCytoscapeData;
+      cmp.setCytoscapeData = function () {
+        var result = orig.apply(this, arguments);
+        var self = this;
+        var arg0 = arguments[0];
+        log(
+          "setCytoscapeData args",
+          arguments.length,
+          arg0 == null ? arg0 : typeof arg0
+        );
+        if (deliverCapture({ req: lastSearchReq, data: arg0 })) return result;
+        tryHarvest(self);
+        setTimeout(function () {
+          tryHarvest(self);
+        }, 0);
+        setTimeout(function () {
+          tryHarvest(self);
+        }, 200);
+        setTimeout(function () {
+          tryHarvest(self);
+        }, 600);
+        return result;
+      };
+      log("hooked GLCComponent.setCytoscapeData");
+    }
     return true;
   }
 
@@ -981,7 +1212,19 @@
     hooksInstalled = true;
 
     function captureFromXhr(xhr, body) {
-      if (!isSearchUrl(xhr.__glcUrl)) return;
+      var url = xhr.__glcUrl || "";
+      var searchBody = false;
+      try {
+        searchBody =
+          typeof FormData !== "undefined" &&
+          body &&
+          body instanceof FormData &&
+          typeof body.has === "function" &&
+          (body.has("nodesToSearch") || body.has("linkTypeCat"));
+      } catch (err) {
+        searchBody = false;
+      }
+      if (!isSearchUrl(url) && !searchBody) return;
       var req = parseRequestBody(body);
       if (req && (req.nodes || req.dateFrom || req.graphDepth)) lastSearchReq = req;
       if (!pending) return;
@@ -998,6 +1241,9 @@
         deliverCapture({ req: req, data: raw });
       }
 
+      xhr.addEventListener("readystatechange", function () {
+        if (xhr.readyState === 4) setTimeout(succeed, 0);
+      });
       xhr.addEventListener("load", function () {
         setTimeout(succeed, 0);
       });
@@ -1006,7 +1252,11 @@
     var origOpen = XMLHttpRequest.prototype.open;
     var origSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function (method, url) {
-      this.__glcUrl = typeof url === "string" ? url : (url && url.toString()) || "";
+      var found = "";
+      for (var i = 0; i < arguments.length; i++) {
+        if (typeof arguments[i] === "string" && isSearchUrl(arguments[i])) found = arguments[i];
+      }
+      this.__glcUrl = found || (typeof url === "string" ? url : (url && url.toString()) || "");
       return origOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function (body) {
@@ -1255,6 +1505,14 @@
       setButtonLabel(ourBtn, "Run and Summarize", "fa fa-list-alt");
       showModal("Could not click Ok.\n\n" + (err && err.message ? err.message : err));
       return;
+    }
+    if (cmp) {
+      setTimeout(function () {
+        tryHarvest(cmp);
+      }, 300);
+      setTimeout(function () {
+        tryHarvest(cmp);
+      }, 900);
     }
     wait
       .then(function (captured) {
