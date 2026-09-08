@@ -753,6 +753,27 @@
     return data.responseCode !== undefined && data.responseCode !== null;
   }
 
+  function graphFingerprint(data) {
+    if (!data || typeof data !== "object") return "";
+    var verts = vertices(data);
+    var eds = edges(data);
+    var names = [];
+    var i;
+    for (i = 0; i < verts.length; i++) {
+      var n = nodeName(verts[i]);
+      if (n) names.push(n);
+    }
+    names.sort();
+    var links = [];
+    for (i = 0; i < eds.length; i++) {
+      var d = directedNames(eds[i]);
+      var m = linkMeta(eds[i]);
+      links.push(String(m[0]) + ":" + d[0] + ">" + d[1]);
+    }
+    links.sort();
+    return names.join("\n") + "||" + links.join("\n");
+  }
+
   function findGraphIn(obj, depth, seen) {
     depth = depth || 0;
     seen = seen || [];
@@ -1132,7 +1153,8 @@
     readXhrBody: readXhrBody,
     isSearchUrl: isSearchUrl,
     looksLikeGraph: looksLikeGraph,
-    isEmptySearchResult: isEmptySearchResult
+    isEmptySearchResult: isEmptySearchResult,
+    graphFingerprint: graphFingerprint
   };
 
   if (typeof module !== "undefined" && module.exports) {
@@ -1151,6 +1173,11 @@
   var hooksInstalled = false;
   var summarizeRunning = false;
   var boundOkHost = null;
+  var lastGlcCmp = null;
+  var harvestAllowed = false;
+  var graphSnapshot = "";
+  var searchEpoch = 0;
+  var captureSeq = 0;
 
   function log() {
     var args = Array.prototype.slice.call(arguments);
@@ -1226,6 +1253,10 @@
   function deliverCapture(captured, opts) {
     opts = opts || {};
     if (!pending) return false;
+    if (opts.epoch != null && pending.epoch !== opts.epoch) {
+      log("skip payload, from a previous search");
+      return false;
+    }
     var data = captured && captured.data;
     try {
       data = parseGraphResponse(data);
@@ -1234,13 +1265,23 @@
       return false;
     }
     var populated = looksLikeGraph(data);
-    var emptyOk = !!(opts.allowEmpty && isEmptySearchResult(data));
+    var emptyOk = !!(opts.allowEmpty && opts.fromNetwork && isEmptySearchResult(data));
     if (!populated && !emptyOk) {
       log(
         "skip payload, waiting for graph vertices",
         data && typeof data === "object" ? Object.keys(data).slice(0, 12) : typeof data
       );
       return false;
+    }
+    if (!opts.fromNetwork) {
+      if (!harvestAllowed) {
+        log("skip harvest, waiting for this search HTTP response");
+        return false;
+      }
+      if (graphSnapshot && graphFingerprint(data) === graphSnapshot) {
+        log("skip harvest, graph is still the previous search");
+        return false;
+      }
     }
     pending.resolve({
       req: (captured && captured.req) || lastSearchReq || {},
@@ -1408,13 +1449,36 @@
     return false;
   }
 
+  function snapshotCurrentGraph(cmp) {
+    var found = null;
+    try {
+      found = harvestShallow(cmp);
+    } catch (err) {
+      found = null;
+    }
+    if (!found || !looksLikeGraph(found)) {
+      var cys = findCyFromDom();
+      if (cmp) addCy(cys, findCy(cmp));
+      var i;
+      for (i = 0; i < cys.length; i++) {
+        found = graphFromCytoscape(cys[i]);
+        if (found && looksLikeGraph(found)) break;
+        found = null;
+      }
+    }
+    graphSnapshot = found && looksLikeGraph(found) ? graphFingerprint(found) : "";
+    log("search snapshot", graphSnapshot ? graphSnapshot.split("||")[0] : "(empty canvas)");
+  }
+
   function startHarvestLoop(cmp) {
     var started = Date.now();
+    var epoch = pending ? pending.epoch : searchEpoch;
     var timer = setInterval(function () {
-      if (!pending) {
+      if (!pending || pending.epoch !== epoch) {
         clearInterval(timer);
         return;
       }
+      if (!harvestAllowed) return;
       if (tryHarvest(cmp)) {
         clearInterval(timer);
         return;
@@ -1444,15 +1508,30 @@
           var parsed = parseRequestBody(formData);
           if (parsed && (parsed.nodes || parsed.graphDepth || parsed.dateFrom)) lastSearchReq = parsed;
         }
+        var epochAtSend = pending.epoch;
         return tapObservable(result, function (value) {
           log(
             "sendPostRequest next",
             typeof value,
             value && typeof value === "object" ? Object.keys(value).slice(0, 12) : ""
           );
-          if (deliverCapture({ req: lastSearchReq, data: value }, { allowEmpty: true })) return;
+          if (!pending || pending.epoch !== epochAtSend) return;
+          harvestAllowed = true;
+          if (
+            deliverCapture(
+              { req: lastSearchReq, data: value },
+              { allowEmpty: true, fromNetwork: true, epoch: epochAtSend }
+            )
+          ) {
+            return;
+          }
           var nested = findGraphIn(value, 0, []);
-          if (nested) deliverCapture({ req: lastSearchReq, data: nested }, { allowEmpty: true });
+          if (nested) {
+            deliverCapture(
+              { req: lastSearchReq, data: nested },
+              { allowEmpty: true, fromNetwork: true, epoch: epochAtSend }
+            );
+          }
         });
       };
       log("hooked GLCComponent.sendPostRequest");
@@ -1508,17 +1587,24 @@
       var req = parseRequestBody(body);
       if (req && (req.nodes || req.dateFrom || req.graphDepth)) lastSearchReq = req;
       if (!pending) return;
+      xhr.__glcEpoch = pending.epoch;
 
       function succeed() {
         if (xhr.readyState !== 4) return;
+        if (!pending || xhr.__glcEpoch !== pending.epoch) return;
+        harvestAllowed = true;
         var raw = readXhrBody(xhr);
         if (raw == null || raw === "") {
           log(
-            "searchByNodes XHR had an empty body (Angular json responseType is normal); waiting for graph data"
+            "searchByNodes XHR had an empty body (Angular json responseType is normal); waiting for this search's graph"
           );
+          tryHarvest(lastGlcCmp);
           return;
         }
-        deliverCapture({ req: req, data: raw }, { allowEmpty: true });
+        deliverCapture(
+          { req: req, data: raw },
+          { allowEmpty: true, fromNetwork: true, epoch: xhr.__glcEpoch }
+        );
       }
 
       xhr.addEventListener("readystatechange", function () {
@@ -1556,6 +1642,7 @@
         if (pending && isSearchUrl(url)) {
           var req = parseRequestBody(init && init.body);
           lastSearchReq = req;
+          var epoch = pending.epoch;
           p.then(function (res) {
             return res
               .clone()
@@ -1564,7 +1651,12 @@
                 return res.clone().text();
               })
               .then(function (body) {
-                deliverCapture({ req: req, data: body }, { allowEmpty: true });
+                if (!pending || pending.epoch !== epoch) return;
+                harvestAllowed = true;
+                deliverCapture(
+                  { req: req, data: body },
+                  { allowEmpty: true, fromNetwork: true, epoch: epoch }
+                );
               });
           }).catch(function () {
             /* keep waiting for setCytoscapeData */
@@ -1576,25 +1668,38 @@
     log("network hooks installed");
   }
 
+  function abortPendingQuiet() {
+    if (!pending) return;
+    pending.reject(new Error("aborted"));
+  }
+
   function armCapture(timeoutMs, cmp) {
+    abortPendingQuiet();
+    harvestAllowed = false;
+    snapshotCurrentGraph(cmp);
+    var epoch = ++searchEpoch;
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
-        if (!pending) return;
-        if (tryHarvest(cmp)) return;
+        if (!pending || pending.epoch !== epoch) return;
+        if (harvestAllowed && tryHarvest(cmp)) return;
         pending = null;
         reject(
           new Error(
-            "Timed out waiting for the GLC search (waited 20 minutes). If the graph is still loading, wait for it to finish and click Run and Summarize again."
+            "Timed out waiting for the GLC search (waited 20 minutes). If the graph is still loading, wait for it to finish and click Ok again."
           )
         );
       }, timeoutMs);
       pending = {
+        epoch: epoch,
         resolve: function (value) {
           clearTimeout(timer);
+          if (!pending || pending.epoch !== epoch) return;
+          pending = null;
           resolve(value);
         },
         reject: function (err) {
           clearTimeout(timer);
+          if (pending && pending.epoch === epoch) pending = null;
           reject(err);
         }
       };
@@ -1815,8 +1920,37 @@
     return okBtn;
   }
 
+  function startSummarizeFromOk() {
+    var seq = ++captureSeq;
+    summarizeRunning = true;
+    setDockLoading();
+    installHooks();
+    var cmp = findGlcComponent();
+    lastGlcCmp = cmp;
+    if (cmp) {
+      hookGlcComponent(cmp);
+    } else {
+      log("GLCComponent not found; will use the searchByNodes response");
+    }
+    var wait = armCapture(WAIT_MS, cmp);
+    startHarvestLoop(cmp);
+    wait
+      .then(function (captured) {
+        if (seq !== captureSeq) return;
+        showModal(buildSummary(captured.req, captured.data));
+      })
+      .catch(function (err) {
+        if (seq !== captureSeq) return;
+        if (err && String(err.message || err) === "aborted") return;
+        showModal("Could not build the report.\n\n" + (err && err.message ? err.message : err));
+      })
+      .then(function () {
+        if (seq !== captureSeq) return;
+        summarizeRunning = false;
+      });
+  }
+
   function onOkCapture() {
-    if (summarizeRunning) return;
     startSummarizeFromOk();
   }
 
@@ -1838,31 +1972,6 @@
     log("Ok capture bound");
   }
 
-  function startSummarizeFromOk() {
-    if (summarizeRunning) return;
-    summarizeRunning = true;
-    setDockLoading();
-    installHooks();
-    var cmp = findGlcComponent();
-    if (cmp) {
-      hookGlcComponent(cmp);
-    } else {
-      log("GLCComponent not found; will use the searchByNodes response");
-    }
-    var wait = armCapture(WAIT_MS, cmp);
-    startHarvestLoop(cmp);
-    wait
-      .then(function (captured) {
-        showModal(buildSummary(captured.req, captured.data));
-      })
-      .catch(function (err) {
-        showModal("Could not build the report.\n\n" + (err && err.message ? err.message : err));
-      })
-      .then(function () {
-        summarizeRunning = false;
-      });
-  }
-
   function start() {
     if (observer) return;
     installHooks();
@@ -1879,6 +1988,7 @@
       observer = null;
     }
     unbindOkCapture();
+    abortPendingQuiet();
     summarizeRunning = false;
     var leftover = document.querySelector("#glcRunAndSummarizeBtn");
     if (leftover) leftover.remove();

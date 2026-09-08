@@ -171,6 +171,45 @@ node -e '
   if (ownsCy.edges[0].nodeA.nodeName !== "ADELY1" || ownsCy.edges[0].nodeB.nodeName !== "201066257228") {
     throw new Error("owns cytoscape endpoints missing: " + JSON.stringify(ownsCy.edges[0]));
   }
+  const ownsFp = api.graphFingerprint({
+    vertices: [
+      { nodeName: "ADELY1", nodeTypeId: 1001 },
+      { nodeName: "201066257228", nodeTypeId: 1 }
+    ],
+    edges: [{
+      linkTypeID: 13,
+      nodeA: { nodeName: "ADELY1", nodeTypeId: 1001 },
+      nodeB: { nodeName: "201066257228", nodeTypeId: 1 }
+    }]
+  });
+  const voiceFp = api.graphFingerprint({
+    vertices: [
+      { nodeName: "201066257228", nodeTypeId: 1 },
+      { nodeName: "20100130105", nodeTypeId: 1 }
+    ],
+    edges: [{
+      linkTypeID: 7,
+      nodeA: { nodeName: "201066257228", nodeTypeId: 1 },
+      nodeB: { nodeName: "20100130105", nodeTypeId: 1 }
+    }]
+  });
+  if (!ownsFp || ownsFp === voiceFp) {
+    throw new Error("search fingerprints should differ: " + ownsFp + " vs " + voiceFp);
+  }
+  const ownsFp2 = api.graphFingerprint({
+    vertices: [
+      { nodeName: "201066257228", nodeTypeId: 1 },
+      { nodeName: "ADELY1", nodeTypeId: 1001 }
+    ],
+    edges: [{
+      linkTypeID: 13,
+      nodeA: { nodeName: "ADELY1", nodeTypeId: 1 },
+      nodeB: { nodeName: "201066257228", nodeTypeId: 1 }
+    }]
+  });
+  if (ownsFp2.split("||")[0] !== ownsFp.split("||")[0]) {
+    throw new Error("fingerprint should not depend on vertex order");
+  }
   console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
 
