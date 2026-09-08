@@ -45,4 +45,8 @@ echo "=== wrapper --response path ==="
 grep -q "VoiceCall" "$tmp/stdout.txt"
 grep -q "VoiceCall" "$tmp/wrap.txt"
 
+echo "=== GUI JS summarizer vs Python ==="
+chmod 775 "$ROOT/tests/run_gui_summary_test.sh"
+"$ROOT/tests/run_gui_summary_test.sh"
+
 echo "summary_tests_ok"
