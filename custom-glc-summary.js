@@ -1493,12 +1493,21 @@
       "display:flex;flex-direction:column;overflow:hidden;border-radius:14px;",
       "background:#0b1220;color:#e5eefc;box-shadow:0 18px 50px rgba(2,8,23,.45),0 0 0 1px rgba(148,163,184,.18);",
       "font-family:Segoe UI,system-ui,-apple-system,sans-serif;transition:width .2s ease,height .2s ease,border-radius .2s ease;}",
-      "#glcSummaryDock.is-min{width:280px;height:48px;border-radius:24px;cursor:pointer;}",
+      "#glcSummaryDock.is-min{width:252px;height:44px;border-radius:22px;cursor:pointer;}",
       "#glcSummaryDock.is-max{width:min(960px,calc(100vw - 40px));height:calc(100vh - 40px);}",
-      "#glcSummaryDock .glc-head{display:flex;align-items:center;gap:10px;padding:0 10px 0 14px;height:48px;flex:0 0 48px;",
+      "#glcSummaryDock .glc-head{display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;height:48px;flex:0 0 48px;",
       "background:linear-gradient(180deg,#152033,#101a2c);border-bottom:1px solid rgba(148,163,184,.14);user-select:none;}",
-      "#glcSummaryDock.is-min .glc-head{border-bottom:none;}",
-      "#glcSummaryDock .glc-dot{width:10px;height:10px;border-radius:50%;background:#38bdf8;box-shadow:0 0 10px rgba(56,189,248,.8);flex:0 0 auto;}",
+      "#glcSummaryDock.is-min .glc-head{border-bottom:none;height:44px;flex-basis:44px;}",
+      "#glcSummaryDock .glc-status{position:relative;width:16px;height:16px;flex:0 0 16px;display:inline-flex;align-items:center;justify-content:center;}",
+      "#glcSummaryDock .glc-dot{width:10px;height:10px;border-radius:50%;background:#38bdf8;box-shadow:0 0 10px rgba(56,189,248,.8);}",
+      "#glcSummaryDock .glc-spinner{width:14px;height:14px;border-radius:50%;border:2px solid rgba(148,163,184,.28);border-top-color:#7dd3fc;",
+      "animation:glcSpin .7s linear infinite;box-sizing:border-box;}",
+      "#glcSummaryDock.is-loading .glc-dot{display:none;}",
+      "#glcSummaryDock:not(.is-loading) .glc-spinner{display:none;}",
+      "#glcSummaryDock .glc-badge{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;",
+      "box-shadow:0 0 0 2px #0b1220,0 0 8px rgba(239,68,68,.9);display:none;}",
+      "#glcSummaryDock.has-unread .glc-badge{display:block;}",
+      "@keyframes glcSpin{to{transform:rotate(360deg);}}",
       "#glcSummaryDock .glc-title{flex:1;min-width:0;font-size:13px;font-weight:600;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
       "#glcSummaryDock .glc-sub{display:block;font-size:10px;font-weight:500;color:#93c5fd;opacity:.9;margin-top:1px;}",
       "#glcSummaryDock .glc-actions{display:flex;align-items:center;gap:4px;}",
@@ -1509,7 +1518,8 @@
       "#glcSummaryDock .glc-copy-label{width:auto;padding:0 8px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;}",
       "#glcSummaryDock .glc-copy-label.is-copied{color:#86efac;}",
       "#glcSummaryDock .glc-body{flex:1;min-height:0;overflow:auto;background:#0b1220;}",
-      "#glcSummaryDock.is-min .glc-body,#glcSummaryDock.is-min .glc-copy-label,#glcSummaryDock.is-min .glc-sub{display:none;}",
+      "#glcSummaryDock.is-min .glc-body,#glcSummaryDock.is-min .glc-copy-label,#glcSummaryDock.is-min .glc-sub,#glcSummaryDock.is-min .glc-min{display:none;}",
+      "#glcSummaryDock.is-loading .glc-copy-label,#glcSummaryDock.is-loading .glc-max{display:none;}",
       "#glcSummaryDock pre{margin:0;padding:16px 18px 20px;white-space:pre-wrap;word-break:break-word;user-select:text;",
       "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;color:#dbeafe;}",
       "#glcSummaryDock .glc-resize{position:absolute;left:0;top:0;width:14px;height:14px;cursor:nwse-resize;display:none;}",
@@ -1552,6 +1562,8 @@
     if (mode === "min") dock.classList.add("is-min");
     if (mode === "max") dock.classList.add("is-max");
     dock.setAttribute("data-mode", mode);
+    dock.style.width = "";
+    dock.style.height = "";
     var maxBtn = dock.querySelector(".glc-max");
     if (maxBtn) {
       maxBtn.textContent = mode === "max" ? "❐" : "□";
@@ -1561,49 +1573,38 @@
     if (minBtn) minBtn.title = mode === "min" ? "Restore" : "Minimize";
   }
 
-  function showReportWindow(text) {
-    ensureDockCss();
-    var old = document.getElementById("glcSummaryDock");
-    if (old) old.remove();
-    var dock = document.createElement("div");
-    dock.id = "glcSummaryDock";
-    dock.setAttribute("role", "dialog");
-    dock.setAttribute("aria-label", "GLC network report");
-    dock.innerHTML =
-      '<div class="glc-resize" title="Resize"></div>' +
-      '<div class="glc-head">' +
-      '<span class="glc-dot"></span>' +
-      '<div class="glc-title">GLC network report<span class="glc-sub">Bottom-right window · select text or Copy</span></div>' +
-      '<div class="glc-actions">' +
-      '<button type="button" class="glc-iconbtn glc-copy-label" title="Copy all">Copy</button>' +
-      '<button type="button" class="glc-iconbtn glc-min" title="Minimize">–</button>' +
-      '<button type="button" class="glc-iconbtn glc-max" title="Maximize">□</button>' +
-      '<button type="button" class="glc-iconbtn glc-close" title="Close">×</button>' +
-      "</div></div>" +
-      '<div class="glc-body"><pre></pre></div>';
-    dock.querySelector("pre").textContent = text;
-    setDockMode(dock, "open");
+  function markDockRead(dock) {
+    dock.classList.remove("has-unread");
+  }
 
+  function bindDockEvents(dock) {
+    if (dock.__glcBound) return;
+    dock.__glcBound = true;
     dock.querySelector(".glc-close").addEventListener("click", function (e) {
       e.stopPropagation();
       dock.remove();
     });
     dock.querySelector(".glc-min").addEventListener("click", function (e) {
       e.stopPropagation();
-      setDockMode(dock, dock.classList.contains("is-min") ? "open" : "min");
+      setDockMode(dock, "min");
     });
     dock.querySelector(".glc-max").addEventListener("click", function (e) {
       e.stopPropagation();
+      if (dock.classList.contains("is-loading")) return;
+      markDockRead(dock);
       setDockMode(dock, dock.classList.contains("is-max") ? "open" : "max");
     });
     dock.querySelector(".glc-copy-label").addEventListener("click", function (e) {
       e.stopPropagation();
-      copyReportText(text, e.currentTarget);
+      copyReportText(dock.__reportText || "", e.currentTarget);
     });
     dock.querySelector(".glc-head").addEventListener("click", function () {
-      if (dock.classList.contains("is-min")) setDockMode(dock, "open");
+      if (dock.classList.contains("is-loading")) return;
+      if (dock.classList.contains("is-min")) {
+        markDockRead(dock);
+        setDockMode(dock, "open");
+      }
     });
-
     var handle = dock.querySelector(".glc-resize");
     handle.addEventListener("mousedown", function (e) {
       if (dock.classList.contains("is-min") || dock.classList.contains("is-max")) return;
@@ -1627,12 +1628,63 @@
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
     });
+  }
 
+  function getDock() {
+    ensureDockCss();
+    var dock = document.getElementById("glcSummaryDock");
+    if (dock) return dock;
+    dock = document.createElement("div");
+    dock.id = "glcSummaryDock";
+    dock.setAttribute("role", "dialog");
+    dock.setAttribute("aria-label", "GLC network report");
+    dock.innerHTML =
+      '<div class="glc-resize" title="Resize"></div>' +
+      '<div class="glc-head">' +
+      '<span class="glc-status"><span class="glc-spinner"></span><span class="glc-dot"></span><span class="glc-badge"></span></span>' +
+      '<div class="glc-title"><span class="glc-title-text">GLC network report</span><span class="glc-sub"></span></div>' +
+      '<div class="glc-actions">' +
+      '<button type="button" class="glc-iconbtn glc-copy-label" title="Copy all">Copy</button>' +
+      '<button type="button" class="glc-iconbtn glc-min" title="Minimize">–</button>' +
+      '<button type="button" class="glc-iconbtn glc-max" title="Maximize">□</button>' +
+      '<button type="button" class="glc-iconbtn glc-close" title="Close">×</button>' +
+      "</div></div>" +
+      '<div class="glc-body"><pre></pre></div>';
+    bindDockEvents(dock);
     document.body.appendChild(dock);
+    return dock;
+  }
+
+  function setDockLoading() {
+    var dock = getDock();
+    dock.classList.add("is-loading");
+    dock.classList.remove("has-unread", "is-error");
+    setDockMode(dock, "min");
+    dock.querySelector(".glc-title-text").textContent = "Running…";
+    dock.querySelector(".glc-sub").textContent = "Retrieving graph data";
+    dock.querySelector("pre").textContent = "Retrieving graph data…";
+    dock.__reportText = "";
+  }
+
+  function setDockReady(text, isError) {
+    var dock = getDock();
+    dock.classList.remove("is-loading");
+    if (isError) dock.classList.add("is-error");
+    else dock.classList.remove("is-error");
+    dock.classList.add("has-unread");
+    setDockMode(dock, "min");
+    dock.querySelector(".glc-title-text").textContent = "GLC network report";
+    dock.querySelector(".glc-sub").textContent = isError ? "Failed · click to open" : "Ready · click to open";
+    dock.querySelector("pre").textContent = text;
+    dock.__reportText = text;
+  }
+
+  function showReportWindow(text) {
+    setDockReady(text, false);
   }
 
   function showModal(text) {
-    showReportWindow(text);
+    setDockReady(text, /could not|timed out|failed/i.test(String(text || "")));
   }
 
   function setButtonLabel(btn, label, iconClass) {
@@ -1652,6 +1704,7 @@
     ourBtn.dataset.running = "1";
     ourBtn.disabled = true;
     setButtonLabel(ourBtn, "Running...", "fa fa-spinner");
+    setDockLoading();
     installHooks();
     var cmp = findGlcComponent();
     if (cmp) {
