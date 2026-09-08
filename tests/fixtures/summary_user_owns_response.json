@@ -1,0 +1,59 @@
+{
+  "responseCode": 0,
+  "warningMsg": null,
+  "maxCount": 1,
+  "vertices": [
+    {
+      "label": "ADELY1",
+      "nodeId": "1001_ADELY1",
+      "nodeName": "ADELY1",
+      "nodeTypeId": 1001,
+      "neighboursCount": 1,
+      "highlight": false,
+      "root": false,
+      "nodeType": {
+        "nodeTypeId": 1001,
+        "nodeTypeName": "User",
+        "id": 1001
+      }
+    },
+    {
+      "label": "201066257228",
+      "nodeId": "1_201066257228",
+      "nodeName": "201066257228",
+      "nodeTypeId": 1,
+      "neighboursCount": 1,
+      "highlight": true,
+      "root": true,
+      "nodeType": {
+        "nodeTypeId": 1,
+        "nodeTypeName": "MSISDN",
+        "id": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "direction": 1,
+      "linkTypeID": 13,
+      "linkType": {
+        "linkTypeId": 13,
+        "linkTypeName": "MSISDN-User",
+        "alias": "Owns",
+        "id": 13
+      },
+      "edgeInfo": {"totalCount": 1, "label": "Owns"},
+      "nodeA": {
+        "nodeName": "ADELY1",
+        "nodeTypeId": 1001,
+        "nodeType": {"nodeTypeId": 1001, "nodeTypeName": "User"}
+      },
+      "nodeB": {
+        "nodeName": "201066257228",
+        "nodeTypeId": 1,
+        "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+      }
+    }
+  ],
+  "nodeTypes": [{"nodeTypeId": 1, "nodeTypeName": "MSISDN", "id": 1}]
+}
