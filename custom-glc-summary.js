@@ -34,7 +34,7 @@
   IDENTITY_TYPE_IDS[ID_TYPE_ID] = 1;
   var TOP_N_DEFAULT = 8;
   var SEARCH_MARK = "searchByNodes";
-  var WAIT_MS = 60000;
+  var WAIT_MS = 20 * 60 * 1000;
   var GENERIC_ALIAS = { "": 1, has: 1, "has a": 1, contains: 1, is: 1, of: 1 };
 
   function toInt(value, fallback) {
@@ -1290,10 +1290,8 @@
   }
 
   function startHarvestLoop(cmp) {
-    var tries = 0;
-    var maxTries = 80;
+    var started = Date.now();
     var timer = setInterval(function () {
-      tries++;
       if (!pending) {
         clearInterval(timer);
         return;
@@ -1302,8 +1300,8 @@
         clearInterval(timer);
         return;
       }
-      if (tries >= maxTries) clearInterval(timer);
-    }, 250);
+      if (Date.now() - started >= WAIT_MS) clearInterval(timer);
+    }, 500);
   }
 
   function urlFromArgs(args) {
@@ -1467,7 +1465,7 @@
         pending = null;
         reject(
           new Error(
-            "Timed out waiting for the GLC search. The graph may still appear. Confirm Ok works, then try again."
+            "Timed out waiting for the GLC search (waited 20 minutes). If the graph is still loading, wait for it to finish and click Run and Summarize again."
           )
         );
       }, timeoutMs);
@@ -1661,8 +1659,9 @@
     dock.classList.remove("has-unread", "is-error");
     setDockMode(dock, "min");
     dock.querySelector(".glc-title-text").textContent = "Running…";
-    dock.querySelector(".glc-sub").textContent = "Retrieving graph data";
-    dock.querySelector("pre").textContent = "Retrieving graph data…";
+    dock.querySelector(".glc-sub").textContent = "Search can take 10+ minutes";
+    dock.querySelector("pre").textContent =
+      "GLC is still searching. This can take 10 minutes or more. The report will appear here when the graph is ready.";
     dock.__reportText = "";
   }
 
