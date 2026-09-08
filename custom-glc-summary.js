@@ -34,7 +34,7 @@
   IDENTITY_TYPE_IDS[ID_TYPE_ID] = 1;
   var TOP_N_DEFAULT = 8;
   var SEARCH_MARK = "searchByNodes";
-  var WAIT_MS = 180000;
+  var WAIT_MS = 60000;
   var GENERIC_ALIAS = { "": 1, has: 1, "has a": 1, contains: 1, is: 1, of: 1 };
 
   function toInt(value, fallback) {
@@ -797,36 +797,91 @@
     return null;
   }
 
+  function asNodeRecord(d) {
+    d = d || {};
+    var inner = d.data && typeof d.data === "object" && !d.nodeName ? d.data : d;
+    var name = inner.nodeName || inner.label || inner.name || d.nodeName || d.label || d.id || "";
+    if (!name && typeof inner.id === "string" && inner.id.indexOf("_") >= 0) {
+      name = inner.id.split("_").slice(1).join("_");
+    }
+    return {
+      nodeName: String(name).trim(),
+      nodeTypeId: inner.nodeTypeId || d.nodeTypeId || (inner.nodeType && inner.nodeType.nodeTypeId),
+      nodeType: inner.nodeType || d.nodeType,
+      root: inner.root || d.root,
+      highlight: inner.highlight || d.highlight,
+      neighboursCount: inner.neighboursCount || d.neighboursCount
+    };
+  }
+
+  function asEdgeRecord(d) {
+    d = d || {};
+    var inner = d.data && typeof d.data === "object" && !d.nodeA ? d.data : d;
+    return {
+      linkTypeID: inner.linkTypeID || inner.linkTypeId || (inner.linkType && inner.linkType.linkTypeId),
+      linkType: inner.linkType || d.linkType,
+      direction: inner.direction || d.direction,
+      edgeInfo: inner.edgeInfo || d.edgeInfo,
+      nodeA: inner.nodeA || { nodeName: inner.source || d.source, nodeTypeId: inner.sourceTypeId },
+      nodeB: inner.nodeB || { nodeName: inner.target || d.target, nodeTypeId: inner.targetTypeId }
+    };
+  }
+
+  function graphFromCyJson(data) {
+    if (!data || typeof data !== "object") return null;
+    var nodes = [];
+    var links = [];
+    if (data.elements) {
+      if (Array.isArray(data.elements)) {
+        for (var i = 0; i < data.elements.length; i++) {
+          var el = data.elements[i] || {};
+          var group = el.group || (el.data && el.data.source ? "edges" : "nodes");
+          if (group === "edges" || group === "edge") links.push(el);
+          else nodes.push(el);
+        }
+      } else {
+        nodes = data.elements.nodes || [];
+        links = data.elements.edges || [];
+      }
+    } else if (Array.isArray(data.nodes) || Array.isArray(data.edges)) {
+      if (Array.isArray(data.vertices)) return null;
+      nodes = data.nodes || [];
+      links = data.edges || [];
+    } else {
+      return null;
+    }
+    if (!nodes.length && !links.length) return null;
+    var vertices = [];
+    var edges = [];
+    for (var n = 0; n < nodes.length; n++) {
+      vertices.push(asNodeRecord(nodes[n].data || nodes[n]));
+    }
+    for (var e = 0; e < links.length; e++) {
+      edges.push(asEdgeRecord(links[e].data || links[e]));
+    }
+    return { responseCode: 0, vertices: vertices, edges: edges };
+  }
+
   function graphFromCytoscape(cy) {
     if (!cy || typeof cy.nodes !== "function") return null;
+    try {
+      if (typeof cy.json === "function") {
+        var mapped = graphFromCyJson(cy.json());
+        if (mapped && (mapped.vertices.length || mapped.edges.length)) return mapped;
+      }
+    } catch (err) {
+      /* fall through to nodes()/edges() */
+    }
     var vertices = [];
     var edges = [];
     try {
       cy.nodes().forEach(function (node) {
-        var d = node.data() || {};
-        var inner = d.data && typeof d.data === "object" ? d.data : d;
-        vertices.push({
-          nodeName: inner.nodeName || inner.label || inner.name || d.id,
-          nodeTypeId: inner.nodeTypeId || (inner.nodeType && inner.nodeType.nodeTypeId),
-          nodeType: inner.nodeType || d.nodeType,
-          root: inner.root || d.root,
-          highlight: inner.highlight || d.highlight,
-          neighboursCount: inner.neighboursCount
-        });
+        vertices.push(asNodeRecord(node.data() || {}));
       });
       cy.edges().forEach(function (edge) {
-        var d = edge.data() || {};
-        var inner = d.data && typeof d.data === "object" ? d.data : d;
-        edges.push({
-          linkTypeID: inner.linkTypeID || inner.linkTypeId || (inner.linkType && inner.linkType.linkTypeId),
-          linkType: inner.linkType || d.linkType,
-          direction: inner.direction || d.direction,
-          edgeInfo: inner.edgeInfo || d.edgeInfo,
-          nodeA: inner.nodeA || { nodeName: d.source, nodeTypeId: inner.sourceTypeId },
-          nodeB: inner.nodeB || { nodeName: d.target, nodeTypeId: inner.targetTypeId }
-        });
+        edges.push(asEdgeRecord(edge.data() || {}));
       });
-    } catch (err) {
+    } catch (err2) {
       return null;
     }
     if (!vertices.length && !edges.length) return null;
@@ -848,6 +903,12 @@
     if (data.body && looksLikeGraph(data.body)) return data.body;
     if (data.graph && looksLikeGraph(data.graph)) return data.graph;
     if (data.graphData && looksLikeGraph(data.graphData)) return data.graphData;
+    var fromCy = graphFromCyJson(data);
+    if (fromCy) return fromCy;
+    if (data.body) {
+      fromCy = graphFromCyJson(data.body);
+      if (fromCy) return fromCy;
+    }
     return data;
   }
 
@@ -951,7 +1012,7 @@
     parseGraphResponse: parseGraphResponse,
     looksLikeGraph: looksLikeGraph,
     findGraphIn: findGraphIn,
-    graphFromCytoscape: graphFromCytoscape,
+    graphFromCyJson: graphFromCyJson,
     readXhrBody: readXhrBody,
     isSearchUrl: isSearchUrl
   };
@@ -1109,12 +1170,22 @@
 
   function findCy(cmp) {
     if (!cmp || typeof cmp !== "object") return null;
-    var names = ["cy", "cytoscape", "cyInstance", "_cy", "cyGraph"];
+    var names = ["cy", "cytoscape", "cyInstance", "_cy", "cyGraph", "cyObj"];
     var i;
     for (i = 0; i < names.length; i++) {
-      if (cmp[names[i]] && typeof cmp[names[i]].nodes === "function") return cmp[names[i]];
+      try {
+        if (cmp[names[i]] && typeof cmp[names[i]].nodes === "function") return cmp[names[i]];
+      } catch (err) {
+        /* ignore */
+      }
     }
-    var nested = [cmp.cytoscapeWrapper, cmp.cyComponent, cmp.graphComponent];
+    var nested = [
+      cmp.cytoscapeWrapper,
+      cmp.cyComponent,
+      cmp.graphComponent,
+      cmp.cytoscapeGraph,
+      cmp.cyGraphComponent
+    ];
     for (i = 0; i < nested.length; i++) {
       var found = findCy(nested[i]);
       if (found) return found;
@@ -1122,25 +1193,117 @@
     return null;
   }
 
+  function addCy(list, cy) {
+    if (cy && typeof cy.nodes === "function" && list.indexOf(cy) < 0) list.push(cy);
+  }
+
+  function findCyFromDom() {
+    var found = [];
+    if (typeof window !== "undefined") addCy(found, window.cy);
+    if (!document || !window.ng) return found;
+    var sels = document.querySelectorAll(
+      "cytoscape-graph, cytoscape-wrapper, app-cytoscape-graph, canvas"
+    );
+    var i;
+    for (i = 0; i < sels.length; i++) {
+      var el = sels[i];
+      var hops = 0;
+      while (el && hops < 10) {
+        try {
+          if (typeof window.ng.getComponent === "function") {
+            addCy(found, findCy(window.ng.getComponent(el)));
+          }
+        } catch (err) {
+          /* ignore */
+        }
+        try {
+          if (typeof window.ng.getOwningComponent === "function") {
+            addCy(found, findCy(window.ng.getOwningComponent(el)));
+          }
+        } catch (err2) {
+          /* ignore */
+        }
+        el = el.parentElement;
+        hops++;
+      }
+    }
+    return found;
+  }
+
+  function harvestShallow(cmp) {
+    if (!cmp || typeof cmp !== "object") return null;
+    var keys;
+    try {
+      keys = Object.keys(cmp);
+    } catch (err) {
+      return null;
+    }
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      var val;
+      try {
+        val = cmp[keys[i]];
+      } catch (err2) {
+        continue;
+      }
+      if (!val || typeof val === "function") continue;
+      try {
+        var parsed = parseGraphResponse(val);
+        if (looksLikeGraph(parsed)) return parsed;
+      } catch (err3) {
+        /* next */
+      }
+    }
+    return findGraphIn(cmp, 0, []);
+  }
+
   function tryHarvest(cmp) {
-    if (!pending || !cmp) return false;
-    var found = findGraphIn(cmp, 0, []);
-    if (found && deliverCapture({ req: lastSearchReq, data: found })) {
-      log("harvested graph JSON from GLC component");
-      return true;
+    if (!pending) return false;
+    if (cmp) {
+      var found = harvestShallow(cmp);
+      if (found && deliverCapture({ req: lastSearchReq, data: found })) {
+        log("harvested graph JSON from GLC component");
+        return true;
+      }
     }
-    var cy = findCy(cmp);
-    if (!cy && typeof window !== "undefined" && window.cy && typeof window.cy.nodes === "function") {
-      cy = window.cy;
-    }
-    if (cy) {
-      var fromCy = graphFromCytoscape(cy);
-      if (fromCy && deliverCapture({ req: lastSearchReq, data: fromCy })) {
-        log("harvested graph from Cytoscape instance");
+    var cys = findCyFromDom();
+    if (cmp) addCy(cys, findCy(cmp));
+    var i;
+    for (i = 0; i < cys.length; i++) {
+      var fromCy = graphFromCytoscape(cys[i]);
+      if (
+        fromCy &&
+        (fromCy.vertices.length || fromCy.edges.length) &&
+        deliverCapture({ req: lastSearchReq, data: fromCy })
+      ) {
+        log(
+          "harvested graph from Cytoscape",
+          fromCy.vertices.length,
+          "nodes",
+          fromCy.edges.length,
+          "links"
+        );
         return true;
       }
     }
     return false;
+  }
+
+  function startHarvestLoop(cmp) {
+    var tries = 0;
+    var maxTries = 80;
+    var timer = setInterval(function () {
+      tries++;
+      if (!pending) {
+        clearInterval(timer);
+        return;
+      }
+      if (tryHarvest(cmp)) {
+        clearInterval(timer);
+        return;
+      }
+      if (tries >= maxTries) clearInterval(timer);
+    }, 250);
   }
 
   function urlFromArgs(args) {
@@ -1296,17 +1459,17 @@
     log("network hooks installed");
   }
 
-  function armCapture(timeoutMs) {
+  function armCapture(timeoutMs, cmp) {
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
-        if (pending) {
-          pending = null;
-          reject(
-            new Error(
-              "Timed out waiting for the GLC search. The graph may still appear. Confirm Ok works, then try again."
-            )
-          );
-        }
+        if (!pending) return;
+        if (tryHarvest(cmp)) return;
+        pending = null;
+        reject(
+          new Error(
+            "Timed out waiting for the GLC search. The graph may still appear. Confirm Ok works, then try again."
+          )
+        );
       }, timeoutMs);
       pending = {
         resolve: function (value) {
@@ -1496,7 +1659,7 @@
     } else {
       log("GLCComponent not found; will use the searchByNodes response");
     }
-    var wait = armCapture(WAIT_MS);
+    var wait = armCapture(WAIT_MS, cmp);
     try {
       okBtn.click();
     } catch (err) {
@@ -1506,14 +1669,7 @@
       showModal("Could not click Ok.\n\n" + (err && err.message ? err.message : err));
       return;
     }
-    if (cmp) {
-      setTimeout(function () {
-        tryHarvest(cmp);
-      }, 300);
-      setTimeout(function () {
-        tryHarvest(cmp);
-      }, 900);
-    }
+    startHarvestLoop(cmp);
     wait
       .then(function (captured) {
         var text = buildSummary(captured.req, captured.data);

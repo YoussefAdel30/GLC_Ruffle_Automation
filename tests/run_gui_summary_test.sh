@@ -80,6 +80,15 @@ node -e '
     body: { responseCode: 0, vertices: [{ nodeName: "201", nodeTypeId: 1 }], edges: [] }
   });
   if (!nested || nested.vertices[0].nodeName !== "201") throw new Error("findGraphIn missed nested body");
+  const cyJson = api.parseGraphResponse({
+    elements: {
+      nodes: [{ data: { id: "1_201000000001", nodeName: "201000000001", nodeTypeId: 1 } }],
+      edges: [{ data: { source: "201000000001", target: "Active", linkType: { linkTypeName: "MSISDN-Line Status" } } }]
+    }
+  });
+  if (!cyJson || cyJson.vertices[0].nodeName !== "201000000001") {
+    throw new Error("cytoscape json not converted: " + JSON.stringify(cyJson));
+  }
   console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
 
