@@ -122,6 +122,53 @@ def line_status_parts(value):
     return head, ""
 
 
+try:
+    from urllib.parse import unquote
+except ImportError:
+    from urllib import unquote
+
+
+_MONTHS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+def decode_form_value(value):
+    text = str(value or "")
+    if not text:
+        return ""
+    try:
+        text = unquote(text.replace("+", " "))
+    except Exception:
+        return str(value)
+    if "%" in text:
+        try:
+            text = unquote(text)
+        except Exception:
+            pass
+    return text
+
+
+def format_period(value):
+    text = decode_form_value(value).strip()
+    if not text:
+        return ""
+    m = re.match(
+        r"^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?",
+        text,
+    )
+    if not m:
+        return text
+    month_i = int(m.group(2)) - 1
+    month = _MONTHS[month_i] if 0 <= month_i < 12 else m.group(2)
+    day = str(int(m.group(3)))
+    out = "%s %s %s" % (day, month, m.group(1))
+    if m.group(4):
+        out += ", %s:%s:%s" % (m.group(4), m.group(5), m.group(6) or "00")
+    return out
+
+
 def request_inputs(req):
     groups = []
     if not req:
@@ -280,6 +327,7 @@ def census_nodes(data, input_names):
                 "roots": roots,
                 "in_input": in_input,
                 "isolated": isolated,
+                "names": names,
             }
         )
     return rows
@@ -517,8 +565,8 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
     lines.append("GLC network report")
     lines.append("=" * 64)
 
-    date_from = req.get("dateFrom") or ""
-    date_to = req.get("dateTo") or ""
+    date_from = format_period(req.get("dateFrom") or "")
+    date_to = format_period(req.get("dateTo") or "")
     depth = req.get("graphDepth")
     if date_from or date_to:
         lines.append("Period: %s to %s" % (date_from, date_to))
@@ -542,6 +590,15 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
                 "Starting %s list (%s): %s%s"
                 % (group["type_name"], len(group["values"]), preview, extra)
             )
+    elif input_names:
+        highlighted = sorted(input_names)
+        extra = ""
+        if len(highlighted) > 8:
+            extra = ", ... (%s in total)" % len(highlighted)
+        lines.append(
+            "Starting list from the graph (%s): %s%s"
+            % (len(highlighted), ", ".join(highlighted[:8]), extra)
+        )
     else:
         lines.append("Starting list: none in the request; using highlighted nodes from the result.")
     lines.append("")
@@ -578,9 +635,17 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         if row["isolated"]:
             bits.append("%s with no links" % row["isolated"])
         suffix = " (%s)" % ", ".join(bits) if bits else ""
+        names_bit = ""
+        if (
+            row["type_id"] not in VALUE_TYPE_IDS
+            and row["type_id"] != MSISDN_TYPE_ID
+            and row["count"] <= 8
+            and row.get("names")
+        ):
+            names_bit = ": %s" % ", ".join(row["names"])
         lines.append(
-            "%s %s nodes%s."
-            % (row["count"], row["type_name"], suffix)
+            "%s %s nodes%s%s."
+            % (row["count"], row["type_name"], suffix, names_bit)
         )
         if row["type_id"] == LINE_STATUS_TYPE_ID:
             lines.append(
@@ -765,6 +830,63 @@ def cmd_selftest(_args):
     assert "201333333333" in vtext
     assert "Starting numbers with no link of this kind" in vtext
     assert "linkTypeId" not in vtext, vtext
+
+    assert format_period("2026%2F09%2F08%2000%3A00%3A00") == "8 Sep 2026, 00:00:00"
+    assert format_period("2026/09/08 23:59:59") == "8 Sep 2026, 23:59:59"
+    owns_req = {
+        "graphDepth": 1,
+        "dateFrom": "2026%2F09%2F08%2000%3A00%3A00",
+        "dateTo": "2026%2F09%2F08%2023%3A59%3A59",
+        "nodes": [{
+            "id": "1",
+            "nodeType": "1",
+            "nodes": "201066257228",
+            "text": "MSISDN",
+        }],
+    }
+    owns_data = {
+        "responseCode": 0,
+        "vertices": [
+            {
+                "nodeName": "ADELY1",
+                "nodeTypeId": 1001,
+                "nodeType": {"nodeTypeId": 1001, "nodeTypeName": "User"},
+            },
+            {
+                "nodeName": "201066257228",
+                "nodeTypeId": 1,
+                "root": True,
+                "highlight": True,
+                "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"},
+            },
+        ],
+        "edges": [
+            {
+                "linkTypeID": 13,
+                "linkType": {
+                    "linkTypeId": 13,
+                    "linkTypeName": "MSISDN-User",
+                    "alias": "Owns",
+                },
+                "nodeA": {
+                    "nodeName": "ADELY1",
+                    "nodeTypeId": 1001,
+                    "nodeType": {"nodeTypeId": 1001, "nodeTypeName": "User"},
+                },
+                "nodeB": {
+                    "nodeName": "201066257228",
+                    "nodeTypeId": 1,
+                    "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"},
+                },
+            }
+        ],
+    }
+    owns_text = build_summary(owns_req, owns_data)
+    assert "Period: 8 Sep 2026, 00:00:00 to 8 Sep 2026, 23:59:59" in owns_text, owns_text
+    assert "%2F" not in owns_text, owns_text
+    assert "2 nodes, 1 links" in owns_text, owns_text
+    assert "ADELY1" in owns_text, owns_text
+    assert "Owns" in owns_text, owns_text
     print("selftest_ok")
 
 

@@ -304,7 +304,8 @@
         count: verts.length,
         roots: roots,
         in_input: inInput,
-        isolated: isolated
+        isolated: isolated,
+        names: names
       });
     }
     rows.sort(function (a, b) {
@@ -620,8 +621,8 @@
     lines.push("GLC network report");
     lines.push(new Array(65).join("=").slice(0, 64));
 
-    var dateFrom = req.dateFrom || "";
-    var dateTo = req.dateTo || "";
+    var dateFrom = formatPeriod(req.dateFrom || "");
+    var dateTo = formatPeriod(req.dateTo || "");
     var depthN = toInt(req.graphDepth, null);
     if (dateFrom || dateTo) lines.push("Period: " + dateFrom + " to " + dateTo);
     if (depthN === 1) {
@@ -637,6 +638,13 @@
           "Starting " + groups[g].type_name + " list (" + groups[g].values.length + "): " + preview + extra
         );
       }
+    } else if (nameSetSize(inputNames)) {
+      var highlighted = sortedKeys(inputNames);
+      extra = highlighted.length > 8 ? ", ... (" + highlighted.length + " in total)" : "";
+      lines.push(
+        "Starting list from the graph (" + highlighted.length + "): " +
+          highlighted.slice(0, 8).join(", ") + extra
+      );
     } else {
       lines.push("Starting list: none in the request; using highlighted nodes from the result.");
     }
@@ -672,7 +680,17 @@
       if (extraNodes > 0 && !VALUE_TYPE_IDS[row.type_id]) bits.push(extraNodes + " extra");
       if (row.isolated) bits.push(row.isolated + " with no links");
       var suffix = bits.length ? " (" + bits.join(", ") + ")" : "";
-      lines.push(row.count + " " + row.type_name + " nodes" + suffix + ".");
+      var namesBit = "";
+      if (
+        !VALUE_TYPE_IDS[row.type_id] &&
+        row.type_id !== MSISDN_TYPE_ID &&
+        row.count <= 8 &&
+        row.names &&
+        row.names.length
+      ) {
+        namesBit = ": " + row.names.join(", ");
+      }
+      lines.push(row.count + " " + row.type_name + " nodes" + suffix + namesBit + ".");
       if (row.type_id === LINE_STATUS_TYPE_ID) {
         lines.push(
           "  These are status labels, not one node per number. If several numbers are Active, they share one Active node. If numbers are Suspended at different times, each time is a separate node."
@@ -719,20 +737,26 @@
     return lines.join("\n") + "\n";
   }
 
+  function vertexLooksReal(v) {
+    if (!v || typeof v !== "object") return false;
+    return !!(v.nodeName || v.label || v.nodeId || v.nodeTypeId || v.nodeType);
+  }
+
   function looksLikeGraph(data) {
     if (!data || typeof data !== "object") return false;
-    if (!Array.isArray(data.vertices) && !Array.isArray(data.edges)) return false;
-    var verts = data.vertices || [];
-    if (!verts.length) return true;
-    var v = verts[0] || {};
-    return !!(
-      v.nodeName ||
-      v.label ||
-      v.nodeTypeId ||
-      v.nodeType ||
-      v.nodeId ||
-      (v.data && (v.data.nodeName || v.data.id))
-    );
+    var verts = data.vertices;
+    if (!Array.isArray(verts) || !verts.length) return false;
+    for (var i = 0; i < verts.length; i++) {
+      if (vertexLooksReal(verts[i])) return true;
+    }
+    return false;
+  }
+
+  function isEmptySearchResult(data) {
+    if (!data || typeof data !== "object") return false;
+    if (!Array.isArray(data.vertices) || data.vertices.length) return false;
+    if (Array.isArray(data.edges) && data.edges.length) return false;
+    return data.responseCode !== undefined && data.responseCode !== null;
   }
 
   function findGraphIn(obj, depth, seen) {
@@ -797,16 +821,26 @@
     return null;
   }
 
+  function idTypeAndName(id) {
+    var text = String(id == null ? "" : id);
+    var m = text.match(/^(\d+)_(.+)$/);
+    if (m) return { typeId: toInt(m[1], null), name: m[2] };
+    return { typeId: null, name: text };
+  }
+
   function asNodeRecord(d) {
     d = d || {};
     var inner = d.data && typeof d.data === "object" && !d.nodeName ? d.data : d;
-    var name = inner.nodeName || inner.label || inner.name || d.nodeName || d.label || d.id || "";
-    if (!name && typeof inner.id === "string" && inner.id.indexOf("_") >= 0) {
-      name = inner.id.split("_").slice(1).join("_");
-    }
+    var parsed = idTypeAndName(inner.nodeId || inner.id || d.id);
+    var name = inner.nodeName || inner.label || inner.name || d.nodeName || d.label || "";
+    if (!name) name = parsed.name;
     return {
-      nodeName: String(name).trim(),
-      nodeTypeId: inner.nodeTypeId || d.nodeTypeId || (inner.nodeType && inner.nodeType.nodeTypeId),
+      nodeName: String(name || "").trim(),
+      nodeTypeId:
+        inner.nodeTypeId ||
+        d.nodeTypeId ||
+        (inner.nodeType && inner.nodeType.nodeTypeId) ||
+        parsed.typeId,
       nodeType: inner.nodeType || d.nodeType,
       root: inner.root || d.root,
       highlight: inner.highlight || d.highlight,
@@ -814,16 +848,43 @@
     };
   }
 
-  function asEdgeRecord(d) {
+  function lookupNode(nodeById, id) {
+    if (!nodeById || id == null || id === "") return null;
+    return nodeById[id] || nodeById[String(id)] || null;
+  }
+
+  function asEdgeRecord(d, nodeById) {
     d = d || {};
     var inner = d.data && typeof d.data === "object" && !d.nodeA ? d.data : d;
+    var src = inner.source || d.source;
+    var tgt = inner.target || d.target;
+    var nodeA = inner.nodeA || d.nodeA || lookupNode(nodeById, src);
+    var nodeB = inner.nodeB || d.nodeB || lookupNode(nodeById, tgt);
+    if (!nodeA || !nodeTypeId(nodeA)) {
+      var srcBits = idTypeAndName(src);
+      nodeA = nodeA || {};
+      nodeA = {
+        nodeName: nodeA.nodeName || nodeA.label || srcBits.name,
+        nodeTypeId: nodeTypeId(nodeA) || inner.sourceTypeId || srcBits.typeId,
+        nodeType: nodeA.nodeType
+      };
+    }
+    if (!nodeB || !nodeTypeId(nodeB)) {
+      var tgtBits = idTypeAndName(tgt);
+      nodeB = nodeB || {};
+      nodeB = {
+        nodeName: nodeB.nodeName || nodeB.label || tgtBits.name,
+        nodeTypeId: nodeTypeId(nodeB) || inner.targetTypeId || tgtBits.typeId,
+        nodeType: nodeB.nodeType
+      };
+    }
     return {
       linkTypeID: inner.linkTypeID || inner.linkTypeId || (inner.linkType && inner.linkType.linkTypeId),
       linkType: inner.linkType || d.linkType,
       direction: inner.direction || d.direction,
       edgeInfo: inner.edgeInfo || d.edgeInfo,
-      nodeA: inner.nodeA || { nodeName: inner.source || d.source, nodeTypeId: inner.sourceTypeId },
-      nodeB: inner.nodeB || { nodeName: inner.target || d.target, nodeTypeId: inner.targetTypeId }
+      nodeA: nodeA,
+      nodeB: nodeB
     };
   }
 
@@ -850,14 +911,22 @@
     } else {
       return null;
     }
-    if (!nodes.length && !links.length) return null;
+    if (!nodes.length) return null;
     var vertices = [];
     var edges = [];
+    var nodeById = {};
     for (var n = 0; n < nodes.length; n++) {
-      vertices.push(asNodeRecord(nodes[n].data || nodes[n]));
+      var rawNode = nodes[n] || {};
+      var nodeData = rawNode.data || rawNode;
+      var rec = asNodeRecord(nodeData);
+      vertices.push(rec);
+      var ids = [nodeData.id, nodeData.nodeId, rec.nodeName, rawNode.id];
+      for (var ii = 0; ii < ids.length; ii++) {
+        if (ids[ii] != null && ids[ii] !== "") nodeById[ids[ii]] = rec;
+      }
     }
     for (var e = 0; e < links.length; e++) {
-      edges.push(asEdgeRecord(links[e].data || links[e]));
+      edges.push(asEdgeRecord(links[e].data || links[e], nodeById));
     }
     return { responseCode: 0, vertices: vertices, edges: edges };
   }
@@ -867,24 +936,32 @@
     try {
       if (typeof cy.json === "function") {
         var mapped = graphFromCyJson(cy.json());
-        if (mapped && (mapped.vertices.length || mapped.edges.length)) return mapped;
+        if (mapped && looksLikeGraph(mapped)) return mapped;
       }
     } catch (err) {
       /* fall through to nodes()/edges() */
     }
     var vertices = [];
     var edges = [];
+    var nodeById = {};
     try {
       cy.nodes().forEach(function (node) {
-        vertices.push(asNodeRecord(node.data() || {}));
+        var rec = asNodeRecord(node.data() || {});
+        vertices.push(rec);
+        try {
+          if (node.id) nodeById[node.id()] = rec;
+        } catch (errId) {
+          /* ignore */
+        }
+        if (rec.nodeName) nodeById[rec.nodeName] = rec;
       });
       cy.edges().forEach(function (edge) {
-        edges.push(asEdgeRecord(edge.data() || {}));
+        edges.push(asEdgeRecord(edge.data() || {}, nodeById));
       });
     } catch (err2) {
       return null;
     }
-    if (!vertices.length && !edges.length) return null;
+    if (!looksLikeGraph({ vertices: vertices, edges: edges })) return null;
     return { responseCode: 0, vertices: vertices, edges: edges };
   }
 
@@ -939,8 +1016,43 @@
     return null;
   }
 
+  function decodeFormValue(value) {
+    if (typeof value !== "string") return value;
+    var text = value.replace(/\+/g, " ");
+    try {
+      text = decodeURIComponent(text);
+    } catch (err) {
+      return value;
+    }
+    if (text.indexOf("%") >= 0) {
+      try {
+        text = decodeURIComponent(text);
+      } catch (err2) {
+        /* keep once-decoded */
+      }
+    }
+    return text;
+  }
+
+  function formatPeriod(value) {
+    var text = decodeFormValue(String(value || "")).trim();
+    if (!text) return "";
+    var m = text.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return text;
+    var months = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ];
+    var month = months[parseInt(m[2], 10) - 1] || m[2];
+    var day = String(parseInt(m[3], 10));
+    var out = day + " " + month + " " + m[1];
+    if (m[4]) out += ", " + m[4] + ":" + m[5] + ":" + (m[6] || "00");
+    return out;
+  }
+
   function applyPair(req, key, value) {
     if (value === undefined || value === null) return;
+    if (typeof value === "string") value = decodeFormValue(value);
     if (key === "nodesToSearch" || key === "nodes") {
       if (typeof value === "string") {
         try {
@@ -956,6 +1068,16 @@
     else if (key === "dateTo") req.dateTo = value;
     else if (key === "linkTypeCat") req.linkTypeCat = value;
     else if (key === "dispTypes") req.dispTypes = value;
+  }
+
+  function applyRequestObject(req, obj) {
+    if (!obj || typeof obj !== "object") return;
+    applyPair(req, "nodesToSearch", obj.nodesToSearch || obj.nodes);
+    applyPair(req, "graphDepth", obj.graphDepth);
+    applyPair(req, "dateFrom", obj.dateFrom);
+    applyPair(req, "dateTo", obj.dateTo);
+    applyPair(req, "linkTypeCat", obj.linkTypeCat);
+    applyPair(req, "dispTypes", obj.dispTypes);
   }
 
   function parseRequestBody(body) {
@@ -978,13 +1100,8 @@
     if (typeof body === "string") {
       try {
         var obj = JSON.parse(body);
-        if (obj && (obj.nodes || obj.nodesToSearch || obj.graphDepth)) {
-          applyPair(req, "nodesToSearch", obj.nodesToSearch || obj.nodes);
-          applyPair(req, "graphDepth", obj.graphDepth);
-          applyPair(req, "dateFrom", obj.dateFrom);
-          applyPair(req, "dateTo", obj.dateTo);
-          applyPair(req, "linkTypeCat", obj.linkTypeCat);
-          applyPair(req, "dispTypes", obj.dispTypes);
+        if (obj && (obj.nodes || obj.nodesToSearch || obj.graphDepth || obj.dateFrom)) {
+          applyRequestObject(req, obj);
           return req;
         }
       } catch (err) {
@@ -998,6 +1115,10 @@
       } catch (err2) {
         /* ignore */
       }
+      return req;
+    }
+    if (typeof body === "object") {
+      applyRequestObject(req, body);
     }
     return req;
   }
@@ -1010,11 +1131,14 @@
     buildSummary: buildSummary,
     parseRequestBody: parseRequestBody,
     parseGraphResponse: parseGraphResponse,
-    looksLikeGraph: looksLikeGraph,
+    formatPeriod: formatPeriod,
+    decodeFormValue: decodeFormValue,
     findGraphIn: findGraphIn,
     graphFromCyJson: graphFromCyJson,
     readXhrBody: readXhrBody,
-    isSearchUrl: isSearchUrl
+    isSearchUrl: isSearchUrl,
+    looksLikeGraph: looksLikeGraph,
+    isEmptySearchResult: isEmptySearchResult
   };
 
   if (typeof module !== "undefined" && module.exports) {
@@ -1103,7 +1227,8 @@
     return null;
   }
 
-  function deliverCapture(captured) {
+  function deliverCapture(captured, opts) {
+    opts = opts || {};
     if (!pending) return false;
     var data = captured && captured.data;
     try {
@@ -1112,10 +1237,12 @@
       log("skip payload, not JSON yet", err && err.message ? err.message : err);
       return false;
     }
-    if (!looksLikeGraph(data)) {
+    var populated = looksLikeGraph(data);
+    var emptyOk = !!(opts.allowEmpty && isEmptySearchResult(data));
+    if (!populated && !emptyOk) {
       log(
-        "skip payload, no vertices/edges",
-        data && typeof data === "object" ? Object.keys(data) : typeof data
+        "skip payload, waiting for graph vertices",
+        data && typeof data === "object" ? Object.keys(data).slice(0, 12) : typeof data
       );
       return false;
     }
@@ -1271,11 +1398,7 @@
     var i;
     for (i = 0; i < cys.length; i++) {
       var fromCy = graphFromCytoscape(cys[i]);
-      if (
-        fromCy &&
-        (fromCy.vertices.length || fromCy.edges.length) &&
-        deliverCapture({ req: lastSearchReq, data: fromCy })
-      ) {
+      if (fromCy && looksLikeGraph(fromCy) && deliverCapture({ req: lastSearchReq, data: fromCy })) {
         log(
           "harvested graph from Cytoscape",
           fromCy.vertices.length,
@@ -1331,9 +1454,9 @@
             typeof value,
             value && typeof value === "object" ? Object.keys(value).slice(0, 12) : ""
           );
-          if (deliverCapture({ req: lastSearchReq, data: value })) return;
+          if (deliverCapture({ req: lastSearchReq, data: value }, { allowEmpty: true })) return;
           var nested = findGraphIn(value, 0, []);
-          if (nested) deliverCapture({ req: lastSearchReq, data: nested });
+          if (nested) deliverCapture({ req: lastSearchReq, data: nested }, { allowEmpty: true });
         });
       };
       log("hooked GLCComponent.sendPostRequest");
@@ -1399,7 +1522,7 @@
           );
           return;
         }
-        deliverCapture({ req: req, data: raw });
+        deliverCapture({ req: req, data: raw }, { allowEmpty: true });
       }
 
       xhr.addEventListener("readystatechange", function () {
@@ -1445,7 +1568,7 @@
                 return res.clone().text();
               })
               .then(function (body) {
-                deliverCapture({ req: req, data: body });
+                deliverCapture({ req: req, data: body }, { allowEmpty: true });
               });
           }).catch(function () {
             /* keep waiting for setCytoscapeData */

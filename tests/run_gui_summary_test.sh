@@ -40,6 +40,26 @@ node_summarize \
   "$tmp/js-voice.txt"
 diff -u "$tmp/py-voice.txt" "$tmp/js-voice.txt"
 
+echo "=== JS vs Python user-owns (real GLC shape) ==="
+python3 "$ROOT/glc_graph_summary.py" summarize \
+  --request "$ROOT/tests/fixtures/summary_user_owns_request.json" \
+  --response "$ROOT/tests/fixtures/summary_user_owns_response.json" \
+  --out "$tmp/py-owns.txt"
+node_summarize \
+  "$ROOT/tests/fixtures/summary_user_owns_request.json" \
+  "$ROOT/tests/fixtures/summary_user_owns_response.json" \
+  "$tmp/js-owns.txt"
+diff -u "$tmp/py-owns.txt" "$tmp/js-owns.txt"
+grep -F "Owns" "$tmp/js-owns.txt"
+grep -F "ADELY1" "$tmp/js-owns.txt"
+grep -F "201066257228" "$tmp/js-owns.txt"
+grep -F "8 Sep 2026" "$tmp/js-owns.txt"
+grep -F "2 nodes, 1 links" "$tmp/js-owns.txt"
+if grep -q "%2F" "$tmp/js-owns.txt"; then
+  echo "dates still URL-encoded" >&2
+  exit 1
+fi
+
 echo "=== parseRequestBody FormData-like JSON string ==="
 node -e '
   const api = require(process.argv[1]);
@@ -75,6 +95,39 @@ node -e '
   const raw = api.readXhrBody(xhrJson);
   if (!raw || !raw.vertices) throw new Error("readXhrBody missed json response object");
   if (!api.looksLikeGraph(obj)) throw new Error("looksLikeGraph failed");
+  if (api.looksLikeGraph({ vertices: [], edges: [{ id: 1 }] })) {
+    throw new Error("empty vertices should not look like a graph");
+  }
+  if (api.looksLikeGraph({ vertices: [], edges: [], nodeTypes: [{ id: 1 }, { id: 1001 }] })) {
+    throw new Error("nodeTypes catalog must not count as a graph");
+  }
+  if (api.looksLikeGraph({ vertices: [], edges: [{ id: "13_x" }], nodeTypes: [{ id: 1 }], responseCode: 0 })) {
+    throw new Error("edges without vertices must not count as a graph");
+  }
+  const emptySearch = { responseCode: 0, vertices: [], edges: [], nodeTypes: [{ id: 1 }] };
+  if (api.looksLikeGraph(emptySearch)) {
+    throw new Error("empty search result is not a populated graph");
+  }
+  if (!api.isEmptySearchResult(emptySearch)) {
+    throw new Error("empty HTTP search result not detected");
+  }
+  if (api.formatPeriod("2026%2F09%2F08%2000%3A00%3A00") !== "8 Sep 2026, 00:00:00") {
+    throw new Error("formatPeriod failed: " + api.formatPeriod("2026%2F09%2F08%2000%3A00%3A00"));
+  }
+  if (api.formatPeriod("2026/09/08 23:59:59") !== "8 Sep 2026, 23:59:59") {
+    throw new Error("formatPeriod plain date failed");
+  }
+  const objReq = api.parseRequestBody({
+    graphDepth: 1,
+    dateFrom: "2026%2F09%2F08%2000%3A00%3A00",
+    nodesToSearch: [{ id: "1", nodeType: "1", nodes: "201066257228", text: "MSISDN" }]
+  });
+  if (!objReq.nodes || objReq.nodes[0].nodes !== "201066257228") {
+    throw new Error("object request body not parsed: " + JSON.stringify(objReq));
+  }
+  if (api.formatPeriod(objReq.dateFrom) !== "8 Sep 2026, 00:00:00") {
+    throw new Error("object request date not decoded");
+  }
   const nested = api.findGraphIn({
     status: 200,
     body: { responseCode: 0, vertices: [{ nodeName: "201", nodeTypeId: 1 }], edges: [] }
@@ -88,6 +141,27 @@ node -e '
   });
   if (!cyJson || cyJson.vertices[0].nodeName !== "201000000001") {
     throw new Error("cytoscape json not converted: " + JSON.stringify(cyJson));
+  }
+  const ownsCy = api.graphFromCyJson({
+    elements: {
+      nodes: [
+        { data: { id: "1001_ADELY1", nodeName: "ADELY1", nodeTypeId: 1001, nodeType: { nodeTypeName: "User" } } },
+        { data: { id: "1_201066257228", nodeName: "201066257228", nodeTypeId: 1, nodeType: { nodeTypeName: "MSISDN" } } }
+      ],
+      edges: [{
+        data: {
+          source: "1001_ADELY1",
+          target: "1_201066257228",
+          linkType: { linkTypeId: 13, linkTypeName: "MSISDN-User", alias: "Owns" }
+        }
+      }]
+    }
+  });
+  if (!ownsCy || ownsCy.vertices.length !== 2 || ownsCy.edges.length !== 1) {
+    throw new Error("owns cytoscape not converted: " + JSON.stringify(ownsCy));
+  }
+  if (ownsCy.edges[0].nodeA.nodeName !== "ADELY1" || ownsCy.edges[0].nodeB.nodeName !== "201066257228") {
+    throw new Error("owns cytoscape endpoints missing: " + JSON.stringify(ownsCy.edges[0]));
   }
   console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
