@@ -1071,68 +1071,155 @@
     });
   }
 
-  function ensureModalCss() {
-    if (document.getElementById("glcSummaryModalCss")) return;
+  function ensureDockCss() {
+    if (document.getElementById("glcSummaryDockCss")) return;
     var style = document.createElement("style");
-    style.id = "glcSummaryModalCss";
-    style.textContent =
-      "#glcSummaryModalMask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;}" +
-      "#glcSummaryModal{background:#fff;color:#222;max-width:920px;width:100%;max-height:86vh;border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:flex;flex-direction:column;font-family:Arial,Helvetica,sans-serif;}" +
-      "#glcSummaryModal header{padding:12px 16px;border-bottom:1px solid #ddd;display:flex;align-items:center;justify-content:space-between;}" +
-      "#glcSummaryModal header h2{margin:0;font-size:16px;}" +
-      "#glcSummaryModal pre{margin:0;padding:16px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.45;flex:1;}" +
-      "#glcSummaryModal footer{padding:10px 16px;border-top:1px solid #ddd;display:flex;gap:8px;justify-content:flex-end;}" +
-      "#glcSummaryModal button{min-width:88px;padding:6px 12px;cursor:pointer;}";
+    style.id = "glcSummaryDockCss";
+    style.textContent = [
+      "#glcSummaryDock{position:fixed;right:20px;bottom:20px;z-index:100000;width:460px;height:520px;",
+      "display:flex;flex-direction:column;overflow:hidden;border-radius:14px;",
+      "background:#0b1220;color:#e5eefc;box-shadow:0 18px 50px rgba(2,8,23,.45),0 0 0 1px rgba(148,163,184,.18);",
+      "font-family:Segoe UI,system-ui,-apple-system,sans-serif;transition:width .2s ease,height .2s ease,border-radius .2s ease;}",
+      "#glcSummaryDock.is-min{width:280px;height:48px;border-radius:24px;cursor:pointer;}",
+      "#glcSummaryDock.is-max{width:min(960px,calc(100vw - 40px));height:calc(100vh - 40px);}",
+      "#glcSummaryDock .glc-head{display:flex;align-items:center;gap:10px;padding:0 10px 0 14px;height:48px;flex:0 0 48px;",
+      "background:linear-gradient(180deg,#152033,#101a2c);border-bottom:1px solid rgba(148,163,184,.14);user-select:none;}",
+      "#glcSummaryDock.is-min .glc-head{border-bottom:none;}",
+      "#glcSummaryDock .glc-dot{width:10px;height:10px;border-radius:50%;background:#38bdf8;box-shadow:0 0 10px rgba(56,189,248,.8);flex:0 0 auto;}",
+      "#glcSummaryDock .glc-title{flex:1;min-width:0;font-size:13px;font-weight:600;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+      "#glcSummaryDock .glc-sub{display:block;font-size:10px;font-weight:500;color:#93c5fd;opacity:.9;margin-top:1px;}",
+      "#glcSummaryDock .glc-actions{display:flex;align-items:center;gap:4px;}",
+      "#glcSummaryDock .glc-iconbtn{appearance:none;border:0;background:transparent;color:#cbd5e1;width:28px;height:28px;border-radius:8px;",
+      "display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;line-height:1;padding:0;}",
+      "#glcSummaryDock .glc-iconbtn:hover{background:rgba(148,163,184,.16);color:#fff;}",
+      "#glcSummaryDock .glc-iconbtn.glc-close:hover{background:#ef4444;color:#fff;}",
+      "#glcSummaryDock .glc-copy-label{width:auto;padding:0 8px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;}",
+      "#glcSummaryDock .glc-copy-label.is-copied{color:#86efac;}",
+      "#glcSummaryDock .glc-body{flex:1;min-height:0;overflow:auto;background:#0b1220;}",
+      "#glcSummaryDock.is-min .glc-body,#glcSummaryDock.is-min .glc-copy-label,#glcSummaryDock.is-min .glc-sub{display:none;}",
+      "#glcSummaryDock pre{margin:0;padding:16px 18px 20px;white-space:pre-wrap;word-break:break-word;user-select:text;",
+      "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;color:#dbeafe;}",
+      "#glcSummaryDock .glc-resize{position:absolute;left:0;top:0;width:14px;height:14px;cursor:nwse-resize;display:none;}",
+      "#glcSummaryDock:not(.is-min):not(.is-max) .glc-resize{display:block;background:linear-gradient(135deg,transparent 50%,rgba(148,163,184,.5) 50%);border-top-left-radius:14px;}"
+    ].join("");
     document.head.appendChild(style);
   }
 
-  function showModal(text) {
-    ensureModalCss();
-    var old = document.getElementById("glcSummaryModalMask");
-    if (old) old.remove();
-    var mask = document.createElement("div");
-    mask.id = "glcSummaryModalMask";
-    mask.innerHTML =
-      '<div id="glcSummaryModal" role="dialog" aria-modal="true">' +
-      "<header><h2>GLC network report</h2></header>" +
-      "<pre></pre>" +
-      "<footer>" +
-      '<button type="button" class="glc-copy">Copy</button>' +
-      '<button type="button" class="glc-close">Close</button>' +
-      "</footer></div>";
-    mask.querySelector("pre").textContent = text;
-    function close() {
-      mask.remove();
+  function copyReportText(text, btn) {
+    function done() {
+      if (!btn) return;
+      btn.textContent = "Copied";
+      btn.classList.add("is-copied");
+      setTimeout(function () {
+        btn.textContent = "Copy";
+        btn.classList.remove("is-copied");
+      }, 1400);
     }
-    mask.addEventListener("click", function (ev) {
-      if (ev.target === mask) close();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(done);
+      return;
+    }
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } catch (err) {
+      /* ignore */
+    }
+    ta.remove();
+    done();
+  }
+
+  function setDockMode(dock, mode) {
+    dock.classList.remove("is-min", "is-max");
+    if (mode === "min") dock.classList.add("is-min");
+    if (mode === "max") dock.classList.add("is-max");
+    dock.setAttribute("data-mode", mode);
+    var maxBtn = dock.querySelector(".glc-max");
+    if (maxBtn) {
+      maxBtn.textContent = mode === "max" ? "❐" : "□";
+      maxBtn.title = mode === "max" ? "Restore" : "Maximize";
+    }
+    var minBtn = dock.querySelector(".glc-min");
+    if (minBtn) minBtn.title = mode === "min" ? "Restore" : "Minimize";
+  }
+
+  function showReportWindow(text) {
+    ensureDockCss();
+    var old = document.getElementById("glcSummaryDock");
+    if (old) old.remove();
+    var dock = document.createElement("div");
+    dock.id = "glcSummaryDock";
+    dock.setAttribute("role", "dialog");
+    dock.setAttribute("aria-label", "GLC network report");
+    dock.innerHTML =
+      '<div class="glc-resize" title="Resize"></div>' +
+      '<div class="glc-head">' +
+      '<span class="glc-dot"></span>' +
+      '<div class="glc-title">GLC network report<span class="glc-sub">Bottom-right window · select text or Copy</span></div>' +
+      '<div class="glc-actions">' +
+      '<button type="button" class="glc-iconbtn glc-copy-label" title="Copy all">Copy</button>' +
+      '<button type="button" class="glc-iconbtn glc-min" title="Minimize">–</button>' +
+      '<button type="button" class="glc-iconbtn glc-max" title="Maximize">□</button>' +
+      '<button type="button" class="glc-iconbtn glc-close" title="Close">×</button>' +
+      "</div></div>" +
+      '<div class="glc-body"><pre></pre></div>';
+    dock.querySelector("pre").textContent = text;
+    setDockMode(dock, "open");
+
+    dock.querySelector(".glc-close").addEventListener("click", function (e) {
+      e.stopPropagation();
+      dock.remove();
     });
-    mask.querySelector(".glc-close").addEventListener("click", close);
-    mask.querySelector(".glc-copy").addEventListener("click", function () {
-      var btn = this;
-      function done() {
-        btn.textContent = "Copied";
-        setTimeout(function () {
-          btn.textContent = "Copy";
-        }, 1200);
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(done);
-      } else {
-        var ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        try {
-          document.execCommand("copy");
-        } catch (err) {
-          /* ignore */
-        }
-        ta.remove();
-        done();
-      }
+    dock.querySelector(".glc-min").addEventListener("click", function (e) {
+      e.stopPropagation();
+      setDockMode(dock, dock.classList.contains("is-min") ? "open" : "min");
     });
-    document.body.appendChild(mask);
+    dock.querySelector(".glc-max").addEventListener("click", function (e) {
+      e.stopPropagation();
+      setDockMode(dock, dock.classList.contains("is-max") ? "open" : "max");
+    });
+    dock.querySelector(".glc-copy-label").addEventListener("click", function (e) {
+      e.stopPropagation();
+      copyReportText(text, e.currentTarget);
+    });
+    dock.querySelector(".glc-head").addEventListener("click", function () {
+      if (dock.classList.contains("is-min")) setDockMode(dock, "open");
+    });
+
+    var handle = dock.querySelector(".glc-resize");
+    handle.addEventListener("mousedown", function (e) {
+      if (dock.classList.contains("is-min") || dock.classList.contains("is-max")) return;
+      e.preventDefault();
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var startW = dock.offsetWidth;
+      var startH = dock.offsetHeight;
+      function move(ev) {
+        var w = Math.max(320, startW - (ev.clientX - startX));
+        var h = Math.max(220, startH - (ev.clientY - startY));
+        dock.style.width = w + "px";
+        dock.style.height = h + "px";
+        dock.style.transition = "none";
+      }
+      function up() {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        dock.style.transition = "";
+      }
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+
+    document.body.appendChild(dock);
+  }
+
+  function showModal(text) {
+    showReportWindow(text);
   }
 
   function setButtonLabel(btn, label, iconClass) {
@@ -1230,8 +1317,8 @@
     }
     var btn = document.querySelector("#glcRunAndSummarizeBtn");
     if (btn) btn.remove();
-    var modal = document.getElementById("glcSummaryModalMask");
-    if (modal) modal.remove();
+    var dock = document.getElementById("glcSummaryDock");
+    if (dock) dock.remove();
   }
 
   function updateState() {
