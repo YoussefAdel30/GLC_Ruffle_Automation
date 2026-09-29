@@ -35,7 +35,6 @@
   IDENTITY_TYPE_IDS[USER_TYPE_ID] = 1;
   IDENTITY_TYPE_IDS[ID_TYPE_ID] = 1;
   var TOP_N_DEFAULT = 8;
-  var MAX_DISTINCT_VALUES = 100;
   var SEARCH_MARK = "searchByNodes";
   var WAIT_MS = 20 * 60 * 1000;
   var GENERIC_ALIAS = { "": 1, has: 1, "has a": 1, contains: 1, is: 1, of: 1 };
@@ -233,40 +232,13 @@
       .trim();
   }
 
-  function formatUniqueCounts(counter, limit) {
-    limit = limit || MAX_DISTINCT_VALUES;
+  function formatUniqueCounts(counter) {
     var items = mostCommon(counter);
-    var extra = 0;
-    if (items.length > limit) {
-      extra = items.length - limit;
-      items = items.slice(0, limit);
-    }
     var parts = [];
     for (var i = 0; i < items.length; i++) {
       parts.push(items[i][1] + " " + displayValue(items[i][0]));
     }
-    if (!parts.length) return "";
-    var text = parts.join(", ");
-    if (extra) text += ", and " + extra + " more";
-    return text;
-  }
-
-  function capped(items, limit) {
-    limit = limit || MAX_DISTINCT_VALUES;
-    var extra = 0;
-    if (items.length > limit) {
-      extra = items.length - limit;
-      items = items.slice(0, limit);
-    }
-    return [items, extra];
-  }
-
-  function joinCapped(items, limit) {
-    var pack = capped(items, limit);
-    var shown = pack[0];
-    var extra = pack[1];
-    if (extra) return shown.join(", ") + ", and " + extra + " more";
-    return joinAnd(shown);
+    return parts.join(", ");
   }
 
   function joinAnd(items) {
@@ -459,7 +431,7 @@
       if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
     if (isolated.length) {
-      lines.push("Starting numbers with no link of this kind: " + joinCapped(isolated) + ".");
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
@@ -499,12 +471,9 @@
       }
     }
     var lines = [coverageStory(nameSetSize(linkedInputs), nameSetSize(inputNames))];
-    var relPack = capped(rels);
-    rels = relPack[0];
     for (var r = 0; r < rels.length; r++) {
       lines.push("The starting number " + rels[r][0] + " is linked to " + rels[r][1] + ".");
     }
-    if (relPack[1]) lines.push("and " + relPack[1] + " more.");
     var common = [];
     for (var name in shared) {
       if (!Object.prototype.hasOwnProperty.call(shared, name)) continue;
@@ -520,12 +489,9 @@
     });
     if (common.length) {
       lines.push("These nodes are linked to two or more starting numbers:");
-      var commonPack = capped(common);
-      common = commonPack[0];
       for (var c = 0; c < common.length; c++) {
         lines.push(common[c][0] + " is linked to " + joinAnd(common[c][1]) + ".");
       }
-      if (commonPack[1]) lines.push("and " + commonPack[1] + " more.");
     } else if (nameSetSize(inputNames)) {
       lines.push("No node is shared by two or more starting numbers.");
     }
@@ -535,7 +501,7 @@
       if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
     if (isolated.length) {
-      lines.push("Starting numbers with no link of this kind: " + joinCapped(isolated) + ".");
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
@@ -582,14 +548,11 @@
       });
       if (callish) lines.push("These starting numbers called each other:");
       else lines.push("These starting numbers are linked to each other:");
-      var directPack = capped(direct);
-      direct = directPack[0];
       for (var d = 0; d < direct.length; d++) {
         var extra = direct[d][2] > 1 ? " (" + direct[d][2] + " times)" : "";
         if (callish) lines.push(direct[d][0] + " called " + direct[d][1] + extra + ".");
         else lines.push(direct[d][0] + " → " + direct[d][1] + extra + ".");
       }
-      if (directPack[1]) lines.push("and " + directPack[1] + " more.");
     } else if (total) {
       lines.push("There are no direct links between the starting numbers.");
     }
@@ -609,12 +572,9 @@
     if (common.length) {
       if (common.length === 1) lines.push("They also share an outside number:");
       else lines.push("They also share outside numbers:");
-      var commonPack = capped(common);
-      common = commonPack[0];
       for (var c = 0; c < common.length; c++) {
         lines.push(common[c][0] + " is linked to " + joinAnd(common[c][1]) + ".");
       }
-      if (commonPack[1]) lines.push("and " + commonPack[1] + " more.");
     } else if (total) {
       lines.push("They do not share an outside number among the starting list.");
     }
@@ -625,7 +585,7 @@
       if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
     if (isolated.length) {
-      lines.push("Starting numbers with no link of this kind: " + joinCapped(isolated) + ".");
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
@@ -656,14 +616,14 @@
         var label = groups[g].type_name;
         var unit = n === 1 ? "number" : "numbers";
         if (label !== "MSISDN") unit = n === 1 ? "item" : "items";
-        parts.push(n + " " + label + " " + unit + " (" + joinCapped(groups[g].values) + ")");
+        parts.push(n + " " + label + " " + unit + " (" + joinAnd(groups[g].values) + ")");
       }
       openBits.push("This search looked at " + joinAnd(parts));
     } else if (nameSetSize(inputNames)) {
       var highlighted = sortedKeys(inputNames);
       var unitH = highlighted.length === 1 ? "number" : "numbers";
       openBits.push(
-        "This search used " + highlighted.length + " highlighted " + unitH + " from the graph (" + joinCapped(highlighted) + ")"
+        "This search used " + highlighted.length + " highlighted " + unitH + " from the graph (" + joinAnd(highlighted) + ")"
       );
     } else {
       openBits.push("This search had no starting list in the request");

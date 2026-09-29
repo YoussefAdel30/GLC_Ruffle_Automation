@@ -220,9 +220,9 @@ node -e '
     many[tag] = 1;
   }
   const manyText = api.formatUniqueCounts(many);
-  if (manyText.indexOf("and 1 more") < 0) throw new Error("101 distinct values should truncate: " + manyText);
-  if ((manyText.match(/plan-/g) || []).length !== 100) {
-    throw new Error("should list 100 plans: " + manyText);
+  if (manyText.indexOf("and 1 more") >= 0) throw new Error("should not truncate distinct values: " + manyText);
+  if ((manyText.match(/plan-/g) || []).length !== 101) {
+    throw new Error("should list all 101 plans: " + manyText);
   }
   const few = api.formatUniqueCounts({ Gold: 3, Silver: 1 });
   if (few !== "3 Gold, 1 Silver") throw new Error("few unique counts: " + few);

@@ -38,7 +38,6 @@ IDENTITY_TYPE_IDS = {
 
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 TOP_N_DEFAULT = 8
-MAX_DISTINCT_VALUES = 100
 
 
 def load_json(path):
@@ -274,34 +273,10 @@ def display_value(name):
     return re.sub(r"\s+", " ", text)
 
 
-def format_unique_counts(counter, limit=MAX_DISTINCT_VALUES):
+def format_unique_counts(counter):
     items = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
-    extra = 0
-    if len(items) > limit:
-        extra = len(items) - limit
-        items = items[:limit]
     parts = ["%s %s" % (n, display_value(name)) for name, n in items]
-    if not parts:
-        return ""
-    text = ", ".join(parts)
-    if extra:
-        text += ", and %s more" % extra
-    return text
-
-
-def capped(items, limit=MAX_DISTINCT_VALUES):
-    extra = 0
-    if len(items) > limit:
-        extra = len(items) - limit
-        items = items[:limit]
-    return items, extra
-
-
-def join_capped(items, limit=MAX_DISTINCT_VALUES):
-    shown, extra = capped(list(items), limit)
-    if extra:
-        return "%s, and %s more" % (", ".join(shown), extra)
-    return join_and(shown)
+    return ", ".join(parts)
 
 
 def join_and(items):
@@ -424,7 +399,7 @@ def summarize_value_link(kind_edges, input_names):
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
     return lines
 
@@ -453,11 +428,8 @@ def summarize_identity_link(kind_edges, input_names):
                     seen_rel.add(key)
                     rels.append(key)
     lines = [coverage_story(len(linked_inputs), len(input_names) or 0)]
-    rels, extra_rels = capped(rels)
     for start, partner in rels:
         lines.append("The starting number %s is linked to %s." % (start, partner))
-    if extra_rels:
-        lines.append("and %s more." % extra_rels)
     common = [
         (name, sorted(members))
         for name, members in shared.items()
@@ -466,17 +438,14 @@ def summarize_identity_link(kind_edges, input_names):
     common.sort(key=lambda row: (-len(row[1]), row[0]))
     if common:
         lines.append("These nodes are linked to two or more starting numbers:")
-        common, extra_common = capped(common)
         for name, members in common:
             lines.append("%s is linked to %s." % (name, join_and(members)))
-        if extra_common:
-            lines.append("and %s more." % extra_common)
     elif input_names:
         lines.append("No node is shared by two or more starting numbers.")
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
     return lines
 
@@ -519,15 +488,12 @@ def summarize_peer_link(kind_edges, input_names, title):
             lines.append("These starting numbers called each other:")
         else:
             lines.append("These starting numbers are linked to each other:")
-        direct, extra_direct = capped(direct)
         for src, dst, n in direct:
             extra = " (%s times)" % n if n > 1 else ""
             if callish:
                 lines.append("%s called %s%s." % (src, dst, extra))
             else:
                 lines.append("%s → %s%s." % (src, dst, extra))
-        if extra_direct:
-            lines.append("and %s more." % extra_direct)
     elif input_names:
         lines.append("There are no direct links between the starting numbers.")
 
@@ -542,18 +508,15 @@ def summarize_peer_link(kind_edges, input_names, title):
             lines.append("They also share an outside number:")
         else:
             lines.append("They also share outside numbers:")
-        common, extra_common = capped(common)
         for name, members in common:
             lines.append("%s is linked to %s." % (name, join_and(members)))
-        if extra_common:
-            lines.append("and %s more." % extra_common)
     elif input_names:
         lines.append("They do not share an outside number among the starting list.")
 
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
     return lines
 
@@ -588,7 +551,7 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
             if label != "MSISDN":
                 unit = "item" if n == 1 else "items"
             parts.append(
-                "%s %s %s (%s)" % (n, label, unit, join_capped(group["values"]))
+                "%s %s %s (%s)" % (n, label, unit, join_and(group["values"]))
             )
         open_bits.append("This search looked at %s" % join_and(parts))
     elif input_names:
@@ -596,7 +559,7 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         unit = "number" if len(highlighted) == 1 else "numbers"
         open_bits.append(
             "This search used %s highlighted %s from the graph (%s)"
-            % (len(highlighted), unit, join_capped(highlighted))
+            % (len(highlighted), unit, join_and(highlighted))
         )
     else:
         open_bits.append("This search had no starting list in the request")
@@ -850,11 +813,10 @@ def cmd_selftest(_args):
     for i in range(101):
         many["plan-%03d" % i] = 1
     many_text = format_unique_counts(many)
-    assert "and 1 more" in many_text, many_text
-    assert many_text.count("plan-") == 100, many_text
+    assert "and 1 more" not in many_text, many_text
+    assert many_text.count("plan-") == 101, many_text
     few = format_unique_counts(Counter({"Gold": 3, "Silver": 1}))
     assert few == "3 Gold, 1 Silver", few
-    assert "more" not in few
     owns_req = {
         "graphDepth": 1,
         "dateFrom": "2026%2F09%2F08%2000%3A00%3A00",
