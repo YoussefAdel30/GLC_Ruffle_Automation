@@ -616,14 +616,14 @@
         var label = groups[g].type_name;
         var unit = n === 1 ? "number" : "numbers";
         if (label !== "MSISDN") unit = n === 1 ? "item" : "items";
-        parts.push(n + " " + label + " " + unit + " (" + joinAnd(groups[g].values) + ")");
+        parts.push(n + " " + label + " " + unit);
       }
       openBits.push("This search looked at " + joinAnd(parts));
     } else if (nameSetSize(inputNames)) {
       var highlighted = sortedKeys(inputNames);
       var unitH = highlighted.length === 1 ? "number" : "numbers";
       openBits.push(
-        "This search used " + highlighted.length + " highlighted " + unitH + " from the graph (" + joinAnd(highlighted) + ")"
+        "This search used " + highlighted.length + " highlighted " + unitH + " from the graph"
       );
     } else {
       openBits.push("This search had no starting list in the request");

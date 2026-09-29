@@ -550,16 +550,14 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
             unit = "number" if n == 1 else "numbers"
             if label != "MSISDN":
                 unit = "item" if n == 1 else "items"
-            parts.append(
-                "%s %s %s (%s)" % (n, label, unit, join_and(group["values"]))
-            )
+            parts.append("%s %s %s" % (n, label, unit))
         open_bits.append("This search looked at %s" % join_and(parts))
     elif input_names:
         highlighted = sorted(input_names)
         unit = "number" if len(highlighted) == 1 else "numbers"
         open_bits.append(
-            "This search used %s highlighted %s from the graph (%s)"
-            % (len(highlighted), unit, join_and(highlighted))
+            "This search used %s highlighted %s from the graph"
+            % (len(highlighted), unit)
         )
     else:
         open_bits.append("This search had no starting list in the request")
