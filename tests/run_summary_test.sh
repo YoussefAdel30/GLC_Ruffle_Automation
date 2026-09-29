@@ -15,10 +15,18 @@ python3 "$ROOT/glc_graph_summary.py" summarize \
   --response "$ROOT/tests/fixtures/summary_line_status_response.json" \
   --out "$tmp/line.txt"
 cat "$tmp/line.txt"
-grep -q "3 MSISDN nodes" "$tmp/line.txt"
-grep -q "2 Line Status nodes" "$tmp/line.txt"
-grep -q "There are 2 different Line Status nodes" "$tmp/line.txt"
-grep -q "Fraud" "$tmp/line.txt"
+grep -q "3 MSISDN" "$tmp/line.txt"
+grep -q "2 Line Status" "$tmp/line.txt"
+grep -q "not one node per number" "$tmp/line.txt"
+grep -q "Active" "$tmp/line.txt"
+if grep -q "Values:" "$tmp/line.txt"; then
+  echo "unexpected Values rollup in business report" >&2
+  exit 1
+fi
+if grep -q "links from" "$tmp/line.txt"; then
+  echo "unexpected links-from aggregation in business report" >&2
+  exit 1
+fi
 if grep -q "linkTypeId" "$tmp/line.txt"; then
   echo "unexpected linkTypeId in business report" >&2
   exit 1
@@ -31,8 +39,7 @@ python3 "$ROOT/glc_graph_summary.py" summarize \
   --out "$tmp/voice.txt"
 cat "$tmp/voice.txt"
 grep -q "VoiceCall" "$tmp/voice.txt"
-grep -q "Direct links between starting numbers" "$tmp/voice.txt"
-grep -q "201111111111 -> 201222222222" "$tmp/voice.txt"
+grep -q "201111111111 called 201222222222" "$tmp/voice.txt"
 grep -q "201999999999" "$tmp/voice.txt"
 
 echo "=== wrapper --response path ==="

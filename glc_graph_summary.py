@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a short text census of a GLC graph response.
+"""Build a short business story of a GLC graph response.
 
 Stdlib only. No pip packages.
 """
@@ -21,6 +21,7 @@ ID_TYPE_ID = 1003
 WALLET_PROFILE_TYPE_ID = 1321
 WALLET_STATUS_TYPE_ID = 1141
 LINE_STATUS_TYPE_ID = 1160
+RATE_PLAN_TYPE_ID = 1180
 
 VALUE_TYPE_IDS = {
     WALLET_PROFILE_TYPE_ID,
@@ -88,6 +89,7 @@ def known_type_name(type_id):
         WALLET_STATUS_TYPE_ID: "Wallet Status",
         LINE_STATUS_TYPE_ID: "Line Status",
         WALLET_PROFILE_TYPE_ID: "Wallet Profile",
+        RATE_PLAN_TYPE_ID: "Rate Plan",
     }.get(type_id, "type-%s" % type_id)
 
 
@@ -265,23 +267,47 @@ def classify_link(type_a, type_b, unique_dest, n_edges):
     return "identity"
 
 
-def top_items(counter, top_n):
-    items = counter.most_common()
-    shown = items[:top_n]
-    rest = items[top_n:]
-    rest_n = sum(n for _k, n in rest)
-    return shown, len(rest), rest_n
-
-
-def fmt_counts(pairs):
-    parts = ["%s %s" % (n, short_name(name)) for name, n in pairs]
-    if not parts:
+def join_and(items):
+    items = [str(x) for x in items if x not in (None, "")]
+    if not items:
         return ""
-    if len(parts) == 1:
-        return parts[0]
-    if len(parts) == 2:
-        return "%s and %s" % (parts[0], parts[1])
-    return "%s, and %s" % (", ".join(parts[:-1]), parts[-1])
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return "%s and %s" % (items[0], items[1])
+    return "%s, and %s" % (", ".join(items[:-1]), items[-1])
+
+
+def type_catalog(data):
+    names = {}
+
+    def add(tid, tname):
+        if tid is None or tname in (None, ""):
+            return
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            return
+        names[tid] = str(tname).strip()
+
+    for nt in data.get("nodeTypes") or []:
+        add(nt.get("nodeTypeId") if nt.get("nodeTypeId") not in (None, "") else nt.get("id"), nt.get("nodeTypeName"))
+    for vertex in vertices(data):
+        nt = vertex.get("nodeType") or {}
+        add(node_type_id(vertex), nt.get("nodeTypeName"))
+    for edge in edges(data):
+        for node in (edge.get("nodeA"), edge.get("nodeB")):
+            if not node:
+                continue
+            nt = node.get("nodeType") or {}
+            add(node_type_id(node), nt.get("nodeTypeName"))
+    return names
+
+
+def type_label(tid, catalog):
+    if tid in catalog:
+        return catalog[tid]
+    return known_type_name(tid)
 
 
 def friendly_link_name(name, alias):
@@ -293,18 +319,21 @@ def friendly_link_name(name, alias):
     return name or "Link"
 
 
-def coverage_line(linked, total):
+def coverage_story(linked, total):
     if not total:
-        return "  No starting numbers were given."
+        return "No starting list was given."
     if linked == total:
-        return "  All %s starting numbers have this link." % total
+        if total == 1:
+            return "The starting number has this kind of link."
+        return "Every starting number has this kind of link."
     if linked == 0:
-        return "  None of the %s starting numbers have this link." % total
-    return "  %s of %s starting numbers have this link." % (linked, total)
+        return "None of the starting numbers have this kind of link."
+    return "%s of the %s starting numbers have this kind of link." % (linked, total)
 
 
-def pair_word(n):
-    return "pair" if n == 1 else "pairs"
+def looks_like_call(name, alias):
+    text = ("%s %s" % (name or "", alias or "")).lower()
+    return "voice" in text or "call" in text
 
 
 def census_nodes(data, input_names):
@@ -341,98 +370,49 @@ def group_edges(data):
     return groups
 
 
-def summarize_value_link(kind_edges, input_names, top_n):
-    value_counter = Counter()
-    status_counter = Counter()
-    reason_counter = Counter()
+def summarize_value_link(kind_edges, input_names):
     linked_inputs = set()
-    dest_is_line = False
-    dest_type_name = "value"
-    raw_dests = set()
-    parsed_combos = set()
     for edge in kind_edges:
         src, dst, type_src, type_dst = directed_names(edge)
         if type_src in VALUE_TYPE_IDS and type_dst not in VALUE_TYPE_IDS:
             src, dst, type_src, type_dst = dst, src, type_dst, type_src
-        dest_type_name = known_type_name(type_dst)
-        raw_dests.add(dst)
-        if type_dst == LINE_STATUS_TYPE_ID:
-            dest_is_line = True
-            status, reason = line_status_parts(dst)
-            label = status or dst
-            value_counter[label] += 1
-            if status:
-                status_counter[status] += 1
-            if reason:
-                reason_counter[reason] += 1
-            parsed_combos.add((status or dst, reason))
-        else:
-            value_counter[dst] += 1
-            parsed_combos.add((dst, ""))
         if src in input_names:
             linked_inputs.add(src)
-    lines = []
-    shown, extra_kinds, extra_n = top_items(value_counter, top_n)
-    if dest_is_line and status_counter:
-        shown_s, extra_s, extra_sn = top_items(status_counter, top_n)
+    lines = [coverage_story(len(linked_inputs), len(input_names))]
+    isolated = [n for n in sorted(input_names) if n not in linked_inputs]
+    if isolated:
         lines.append(
-            "  Status: %s%s."
-            % (
-                fmt_counts(shown_s),
-                (" and %s more" % extra_s) if extra_s else "",
-            )
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
-        if reason_counter:
-            shown_r, extra_r, _n = top_items(reason_counter, top_n)
-            lines.append(
-                "  Suspension reasons: %s%s."
-                % (
-                    fmt_counts(shown_r),
-                    (" and %s more reasons" % extra_r) if extra_r else "",
-                )
-            )
-        lines.append(
-            "  There are %s different %s nodes. "
-            "The time on a Suspended label makes each one a separate node."
-            % (len(raw_dests), dest_type_name)
-        )
-        lines.append(
-            "  If we ignore the time, there are %s different statuses."
-            % len(parsed_combos)
-        )
-    else:
-        lines.append(
-            "  Values: %s%s."
-            % (
-                fmt_counts(shown),
-                (" and %s more (%s links)" % (extra_kinds, extra_n)) if extra_kinds else "",
-            )
-        )
-        if raw_dests:
-            lines.append(
-                "  There are %s different %s nodes."
-                % (len(raw_dests), dest_type_name)
-            )
-    if input_names:
-        lines.append(coverage_line(len(linked_inputs), len(input_names)))
     return lines
 
 
-def summarize_identity_link(kind_edges, input_names, top_n):
-    partner_of = defaultdict(Counter)
+def summarize_identity_link(kind_edges, input_names):
     shared = defaultdict(set)
     linked_inputs = set()
+    rels = []
+    seen_rel = set()
     for edge in kind_edges:
-        src, dst, type_src, type_dst = directed_names(edge)
+        src, dst, _ta, _tb = directed_names(edge)
         if src in input_names:
             linked_inputs.add(src)
-            partner_of[src][dst] += edge_count(edge)
             shared[dst].add(src)
+            if dst not in input_names:
+                key = (src, dst)
+                if key not in seen_rel:
+                    seen_rel.add(key)
+                    rels.append(key)
         if dst in input_names:
             linked_inputs.add(dst)
-            partner_of[dst][src] += edge_count(edge)
             shared[src].add(dst)
-    lines = [coverage_line(len(linked_inputs), len(input_names) or 0)]
+            if src not in input_names:
+                key = (dst, src)
+                if key not in seen_rel:
+                    seen_rel.add(key)
+                    rels.append(key)
+    lines = [coverage_story(len(linked_inputs), len(input_names) or 0)]
+    for start, partner in rels:
+        lines.append("The starting number %s is linked to %s." % (start, partner))
     common = [
         (name, sorted(members))
         for name, members in shared.items()
@@ -440,35 +420,25 @@ def summarize_identity_link(kind_edges, input_names, top_n):
     ]
     common.sort(key=lambda row: (-len(row[1]), row[0]))
     if common:
-        lines.append("  Shared nodes (linked to 2 or more starting numbers):")
-        for name, members in common[:top_n]:
-            preview = ", ".join(members[:6])
-            if len(members) > 6:
-                preview += ", ..."
+        lines.append("These nodes are linked to two or more starting numbers:")
+        for name, members in common:
             lines.append(
-                "    %s is linked to %s starting numbers (%s)."
-                % (short_name(name), len(members), preview)
+                "%s is linked to %s." % (name, join_and(members))
             )
-        if len(common) > top_n:
-            lines.append("    ... and %s more shared nodes." % (len(common) - top_n))
-    else:
-        lines.append("  No node is shared by two or more starting numbers.")
+    elif input_names:
+        lines.append("No node is shared by two or more starting numbers.")
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
-        preview = ", ".join(isolated[:top_n])
-        extra = "" if len(isolated) <= top_n else " and %s more" % (len(isolated) - top_n)
         lines.append(
-            "  Starting numbers with no link of this kind: %s%s." % (preview, extra)
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
     return lines
 
 
-def summarize_peer_link(kind_edges, input_names, top_n):
+def summarize_peer_link(kind_edges, input_names, title):
     direct = []
     linked_inputs = set()
     neighbor_to_inputs = defaultdict(set)
-    out_of_input = Counter()
-    in_to_input = Counter()
     for edge in kind_edges:
         src, dst, _ta, _tb = directed_names(edge)
         n = edge_count(edge)
@@ -482,40 +452,35 @@ def summarize_peer_link(kind_edges, input_names, top_n):
             direct.append((src, dst, n))
         elif src_in and not dst_in:
             neighbor_to_inputs[dst].add(src)
-            out_of_input[src] += n
         elif dst_in and not src_in:
             neighbor_to_inputs[src].add(dst)
-            in_to_input[dst] += n
-        else:
-            if src_in:
-                neighbor_to_inputs[dst].add(src)
-            if dst_in:
-                neighbor_to_inputs[src].add(dst)
     total = len(input_names) or 0
     linked = len(linked_inputs)
     if not total:
-        lines = ["  No starting numbers were given."]
+        lines = ["No starting list was given."]
     elif linked == total:
-        lines = ["  All %s starting numbers appear in these links." % total]
+        lines = ["Every starting number appears in these links."]
     elif linked == 0:
-        lines = ["  None of the %s starting numbers appear in these links." % total]
+        lines = ["None of the starting numbers appear in these links."]
     else:
         lines = [
-            "  %s of %s starting numbers appear in these links." % (linked, total)
+            "%s of the %s starting numbers appear in these links." % (linked, total)
         ]
+    callish = looks_like_call(title, "")
     if direct:
         direct.sort(key=lambda row: (-row[2], row[0], row[1]))
-        lines.append(
-            "  Direct links between starting numbers: %s %s."
-            % (len(direct), pair_word(len(direct)))
-        )
-        for src, dst, n in direct[:top_n]:
+        if callish:
+            lines.append("These starting numbers called each other:")
+        else:
+            lines.append("These starting numbers are linked to each other:")
+        for src, dst, n in direct:
             extra = " (%s times)" % n if n > 1 else ""
-            lines.append("    %s -> %s%s" % (src, dst, extra))
-        if len(direct) > top_n:
-            lines.append("    ... and %s more direct pairs." % (len(direct) - top_n))
-    else:
-        lines.append("  No direct links between the starting numbers.")
+            if callish:
+                lines.append("%s called %s%s." % (src, dst, extra))
+            else:
+                lines.append("%s → %s%s." % (src, dst, extra))
+    elif input_names:
+        lines.append("There are no direct links between the starting numbers.")
 
     common = [
         (name, sorted(members))
@@ -524,28 +489,21 @@ def summarize_peer_link(kind_edges, input_names, top_n):
     ]
     common.sort(key=lambda row: (-len(row[1]), row[0]))
     if common:
-        lines.append(
-            "  Shared outside numbers (2 or more starting numbers link to the same number):"
-        )
-        for name, members in common[:top_n]:
-            preview = ", ".join(members[:6])
-            if len(members) > 6:
-                preview += ", ..."
+        if len(common) == 1:
+            lines.append("They also share an outside number:")
+        else:
+            lines.append("They also share outside numbers:")
+        for name, members in common:
             lines.append(
-                "    %s is linked to %s starting numbers (%s)."
-                % (short_name(name), len(members), preview)
+                "%s is linked to %s." % (name, join_and(members))
             )
-        if len(common) > top_n:
-            lines.append("    ... and %s more shared numbers." % (len(common) - top_n))
-    else:
-        lines.append("  No shared outside numbers among the starting list.")
+    elif input_names:
+        lines.append("They do not share an outside number among the starting list.")
 
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
-        preview = ", ".join(isolated[:top_n])
-        extra = "" if len(isolated) <= top_n else " and %s more" % (len(isolated) - top_n)
         lines.append(
-            "  Starting numbers with no link of this kind: %s%s." % (preview, extra)
+            "Starting numbers with no link of this kind: %s." % join_and(isolated)
         )
     return lines
 
@@ -553,6 +511,8 @@ def summarize_peer_link(kind_edges, input_names, top_n):
 def build_summary(req, data, top_n=TOP_N_DEFAULT):
     req = req or {}
     data = data or {}
+    _ = top_n
+    catalog = type_catalog(data)
     groups = request_inputs(req)
     input_names, _by_type = input_name_set(groups)
     if not input_names:
@@ -561,104 +521,119 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
                 input_names.add(node_name(vertex))
 
     lines = []
-
     date_from = format_period(req.get("dateFrom") or "")
     date_to = format_period(req.get("dateTo") or "")
-    depth = req.get("graphDepth")
-    if date_from or date_to:
-        lines.append("Period: %s to %s" % (date_from, date_to))
     try:
-        depth_n = int(depth)
+        depth_n = int(req.get("graphDepth"))
     except (TypeError, ValueError):
         depth_n = None
-    if depth_n == 1:
-        lines.append("Scope: direct links only (one step from the starting list).")
-    elif depth_n:
-        lines.append(
-            "Scope: up to %s steps from the starting list." % depth_n
-        )
+
+    open_bits = []
     if groups:
+        parts = []
         for group in groups:
-            preview = ", ".join(group["values"][:8])
-            extra = ""
-            if len(group["values"]) > 8:
-                extra = ", ... (%s in total)" % len(group["values"])
-            lines.append(
-                "Starting %s list (%s): %s%s"
-                % (group["type_name"], len(group["values"]), preview, extra)
+            n = len(group["values"])
+            label = group["type_name"]
+            unit = "number" if n == 1 else "numbers"
+            if label != "MSISDN":
+                unit = "item" if n == 1 else "items"
+            parts.append(
+                "%s %s %s (%s)" % (n, label, unit, join_and(group["values"]))
             )
+        open_bits.append("This search looked at %s" % join_and(parts))
     elif input_names:
         highlighted = sorted(input_names)
-        extra = ""
-        if len(highlighted) > 8:
-            extra = ", ... (%s in total)" % len(highlighted)
-        lines.append(
-            "Starting list from the graph (%s): %s%s"
-            % (len(highlighted), ", ".join(highlighted[:8]), extra)
+        unit = "number" if len(highlighted) == 1 else "numbers"
+        open_bits.append(
+            "This search used %s highlighted %s from the graph (%s)"
+            % (len(highlighted), unit, join_and(highlighted))
         )
     else:
-        lines.append("Starting list: none in the request; using highlighted nodes from the result.")
-    lines.append("")
+        open_bits.append("This search had no starting list in the request")
+    if date_from or date_to:
+        open_bits.append("from %s to %s" % (date_from, date_to))
+    opener = " ".join(open_bits) + "."
+    if depth_n == 1:
+        opener += " It only followed direct links (one step from the starting list)."
+    elif depth_n:
+        opener += " It followed up to %s steps from the starting list." % depth_n
+    lines.append(opener)
 
     code = data.get("responseCode")
     warn = data.get("warningMsg")
     n_nodes = len(vertices(data))
     n_links = len(edges(data))
     if code in (0, "0", None):
-        result = "OK"
+        result = "The result came back OK."
     else:
-        result = "not OK (code %s)" % code
-    result_line = "Result: %s. %s nodes, %s links." % (result, n_nodes, n_links)
+        result = "The result did not come back OK (code %s)." % code
+    node_word = "node" if n_nodes == 1 else "nodes"
+    link_word = "link" if n_links == 1 else "links"
+    result += " The graph has %s %s and %s %s." % (n_nodes, node_word, n_links, link_word)
     if warn:
-        result_line += " Note: %s" % warn
-    lines.append(result_line)
+        result += " Note: %s" % warn
+    lines.append("")
+    lines.append(result)
     if not n_nodes and not n_links:
         lines.append("")
         lines.append("This search returned no nodes and no links.")
         return "\n".join(lines) + "\n"
 
     lines.append("")
-    lines.append("----- NODES -----")
+    lines.append("What is in the graph")
     for row in census_nodes(data, input_names):
-        bits = []
-        if row["in_input"] and row["in_input"] == row["count"]:
-            bits.append("all %s were in the starting list" % row["in_input"])
+        n = row["count"]
+        tname = row["type_name"] or type_label(row["type_id"], catalog)
+        if n == 1:
+            head = "There is 1 %s node" % tname
+        else:
+            head = "There are %s %s nodes" % (n, tname)
+        extras = []
+        if row["in_input"] and row["in_input"] == n:
+            extras.append("all of them were in the starting list" if n > 1 else "it was in the starting list")
         elif row["in_input"]:
-            bits.append("%s were in the starting list" % row["in_input"])
-        extra_nodes = row["count"] - row["in_input"]
+            extras.append(
+                "%s %s in the starting list"
+                % (row["in_input"], "was" if row["in_input"] == 1 else "were")
+            )
+        extra_nodes = n - row["in_input"]
         if extra_nodes > 0 and row["type_id"] not in VALUE_TYPE_IDS:
-            bits.append("%s extra" % extra_nodes)
+            if extra_nodes == n:
+                extras.append(
+                    "none of them were in the starting list" if n > 1 else "it was not in the starting list"
+                )
+            else:
+                extras.append("%s extra" % extra_nodes)
         if row["isolated"]:
-            bits.append("%s with no links" % row["isolated"])
-        suffix = " (%s)" % ", ".join(bits) if bits else ""
+            if n == 1:
+                extras.append("it has no links")
+            else:
+                extras.append("%s with no links" % row["isolated"])
         names_bit = ""
         if (
             row["type_id"] not in VALUE_TYPE_IDS
             and row["type_id"] != MSISDN_TYPE_ID
-            and row["count"] <= 8
             and row.get("names")
         ):
-            names_bit = ": %s" % ", ".join(row["names"])
-        lines.append(
-            "%s %s nodes%s%s."
-            % (row["count"], row["type_name"], suffix, names_bit)
-        )
+            names_bit = " (%s)" % join_and(row["names"])
+        suffix = ("; " + ", ".join(extras)) if extras else ""
+        lines.append(head + names_bit + suffix + ".")
         if row["type_id"] == LINE_STATUS_TYPE_ID:
             lines.append(
-                "  These are status labels, not one node per number. "
+                "These are status labels, not one node per number. "
                 "If several numbers are Active, they share one Active node. "
                 "If numbers are Suspended at different times, each time is a separate node."
             )
         elif row["type_id"] in VALUE_TYPE_IDS:
             lines.append(
-                "  These are shared labels, not one node per number. "
+                "These are shared labels, not one node per number. "
                 "Several numbers can share the same %s node."
-                % row["type_name"]
+                % tname
             )
 
     edge_groups = group_edges(data)
     lines.append("")
-    lines.append("----- LINKS -----")
+    lines.append("How they are linked")
     if not edge_groups:
         lines.append("There are no links in this result.")
     for (lid, name, alias), kind_edges in sorted(
@@ -673,20 +648,14 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         (ta, tb), _n = type_pairs.most_common(1)[0]
         kind = classify_link(ta, tb, len(dest_names), len(kind_edges))
         title = friendly_link_name(name, alias)
-        n_kind = len(kind_edges)
-        link_word = "link" if n_kind == 1 else "links"
         lines.append("")
         lines.append(title)
-        lines.append(
-            "  %s %s from %s to %s."
-            % (n_kind, link_word, known_type_name(ta), known_type_name(tb))
-        )
         if kind == "value":
-            lines.extend(summarize_value_link(kind_edges, input_names, top_n))
+            lines.extend(summarize_value_link(kind_edges, input_names))
         elif kind == "peer":
-            lines.extend(summarize_peer_link(kind_edges, input_names, top_n))
+            lines.extend(summarize_peer_link(kind_edges, input_names, title))
         else:
-            lines.extend(summarize_identity_link(kind_edges, input_names, top_n))
+            lines.extend(summarize_identity_link(kind_edges, input_names))
 
     return "\n".join(lines) + "\n"
 
@@ -799,14 +768,13 @@ def cmd_selftest(_args):
         "nodes": [{"id": "1", "nodeType": "1", "nodes": "201000000001\n201000000002\n201000000003", "text": "MSISDN"}],
     }
     text = build_summary(req, _sample_line_status(), top_n=8)
-    assert "3 MSISDN nodes" in text, text
-    assert "2 Line Status nodes" in text, text
+    assert "3 MSISDN" in text, text
+    assert "2 Line Status" in text, text
     assert "not one node per number" in text, text
-    assert "There are 2 different Line Status nodes" in text, text
-    assert "If we ignore the time, there are 2 different statuses" in text, text
     assert "Active" in text
-    assert "Fraud" in text
-    assert "Suspended" in text
+    assert "Values:" not in text, text
+    assert "links from" not in text, text
+    assert "type-" not in text, text
     assert "linkTypeId" not in text, text
     assert "edges" not in text.lower(), text
 
@@ -818,11 +786,10 @@ def cmd_selftest(_args):
     }
     vtext = build_summary(vreq, _sample_voicecall(), top_n=8)
     assert "VoiceCall" in vtext, vtext
-    assert "Direct links between starting numbers: 2 pairs." in vtext, vtext
-    assert "201111111111 -> 201222222222 (12 times)" in vtext, vtext
+    assert "201111111111 called 201222222222" in vtext, vtext
     assert "201999999999" in vtext
     assert "201333333333" in vtext
-    assert "Starting numbers with no link of this kind" in vtext
+    assert "Values:" not in vtext, vtext
     assert "linkTypeId" not in vtext, vtext
 
     assert format_period("2026%2F09%2F08%2000%3A00%3A00") == "8 Sep 2026, 00:00:00"
@@ -876,9 +843,9 @@ def cmd_selftest(_args):
         ],
     }
     owns_text = build_summary(owns_req, owns_data)
-    assert "Period: 8 Sep 2026, 00:00:00 to 8 Sep 2026, 23:59:59" in owns_text, owns_text
+    assert "8 Sep 2026, 00:00:00 to 8 Sep 2026, 23:59:59" in owns_text, owns_text
     assert "%2F" not in owns_text, owns_text
-    assert "2 nodes, 1 links" in owns_text, owns_text
+    assert "The graph has 2 nodes and 1 link." in owns_text, owns_text
     assert "ADELY1" in owns_text, owns_text
     assert "Owns" in owns_text, owns_text
     print("selftest_ok")

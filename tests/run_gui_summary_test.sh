@@ -54,7 +54,7 @@ grep -F "Owns" "$tmp/js-owns.txt"
 grep -F "ADELY1" "$tmp/js-owns.txt"
 grep -F "201066257228" "$tmp/js-owns.txt"
 grep -F "8 Sep 2026" "$tmp/js-owns.txt"
-grep -F "2 nodes, 1 links" "$tmp/js-owns.txt"
+grep -F "The graph has 2 nodes and 1 link." "$tmp/js-owns.txt"
 if grep -q "%2F" "$tmp/js-owns.txt"; then
   echo "dates still URL-encoded" >&2
   exit 1

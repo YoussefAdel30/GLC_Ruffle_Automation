@@ -23,6 +23,7 @@
   var WALLET_PROFILE_TYPE_ID = 1321;
   var WALLET_STATUS_TYPE_ID = 1141;
   var LINE_STATUS_TYPE_ID = 1160;
+  var RATE_PLAN_TYPE_ID = 1180;
   var VALUE_TYPE_IDS = {};
   VALUE_TYPE_IDS[WALLET_PROFILE_TYPE_ID] = 1;
   VALUE_TYPE_IDS[WALLET_STATUS_TYPE_ID] = 1;
@@ -73,6 +74,7 @@
     names[WALLET_STATUS_TYPE_ID] = "Wallet Status";
     names[LINE_STATUS_TYPE_ID] = "Line Status";
     names[WALLET_PROFILE_TYPE_ID] = "Wallet Profile";
+    names[RATE_PLAN_TYPE_ID] = "Rate Plan";
     if (Object.prototype.hasOwnProperty.call(names, typeId)) return names[typeId];
     return "type-" + typeId;
   }
@@ -222,15 +224,52 @@
     return [shown, rest.length, restN];
   }
 
-  function fmtCounts(pairs) {
-    var parts = [];
-    for (var i = 0; i < pairs.length; i++) {
-      parts.push(pairs[i][1] + " " + shortName(pairs[i][0]));
+  function joinAnd(items) {
+    var out = [];
+    var i;
+    for (i = 0; i < items.length; i++) {
+      if (items[i] !== undefined && items[i] !== null && items[i] !== "") out.push(String(items[i]));
     }
-    if (!parts.length) return "";
-    if (parts.length === 1) return parts[0];
-    if (parts.length === 2) return parts[0] + " and " + parts[1];
-    return parts.slice(0, -1).join(", ") + ", and " + parts[parts.length - 1];
+    if (!out.length) return "";
+    if (out.length === 1) return out[0];
+    if (out.length === 2) return out[0] + " and " + out[1];
+    return out.slice(0, -1).join(", ") + ", and " + out[out.length - 1];
+  }
+
+  function typeCatalog(data) {
+    var names = {};
+    function add(tid, tname) {
+      if (tid === null || tid === undefined || tname === null || tname === undefined || tname === "") return;
+      var id = toInt(tid, null);
+      if (id === null) return;
+      names[id] = String(tname).trim();
+    }
+    var list = (data && data.nodeTypes) || [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var nt = list[i] || {};
+      add(nt.nodeTypeId !== undefined && nt.nodeTypeId !== null && nt.nodeTypeId !== "" ? nt.nodeTypeId : nt.id, nt.nodeTypeName);
+    }
+    var verts = vertices(data);
+    for (i = 0; i < verts.length; i++) {
+      var vnt = verts[i].nodeType || {};
+      add(nodeTypeId(verts[i]), vnt.nodeTypeName);
+    }
+    var eds = edges(data);
+    for (i = 0; i < eds.length; i++) {
+      var nodes = [eds[i].nodeA, eds[i].nodeB];
+      for (var j = 0; j < nodes.length; j++) {
+        if (!nodes[j]) continue;
+        var ent = nodes[j].nodeType || {};
+        add(nodeTypeId(nodes[j]), ent.nodeTypeName);
+      }
+    }
+    return names;
+  }
+
+  function typeLabel(tid, catalog) {
+    if (catalog && Object.prototype.hasOwnProperty.call(catalog, tid)) return catalog[tid];
+    return knownTypeName(tid);
   }
 
   function friendlyLinkName(name, alias) {
@@ -239,15 +278,20 @@
     return name || "Link";
   }
 
-  function coverageLine(linked, total) {
-    if (!total) return "  No starting numbers were given.";
-    if (linked === total) return "  All " + total + " starting numbers have this link.";
-    if (linked === 0) return "  None of the " + total + " starting numbers have this link.";
-    return "  " + linked + " of " + total + " starting numbers have this link.";
+  function coverageStory(linked, total) {
+    if (!total) return "No starting list was given.";
+    if (linked === total) {
+      if (total === 1) return "The starting number has this kind of link.";
+      return "Every starting number has this kind of link.";
+    }
+    if (linked === 0) return "None of the starting numbers have this kind of link.";
+    return linked + " of the " + total + " starting numbers have this kind of link.";
   }
 
-  function pairWord(n) {
-    return n === 1 ? "pair" : "pairs";
+  function looksLikeCall(name, alias) {
+    var text = String(name || "") + " " + String(alias || "");
+    text = text.toLowerCase();
+    return text.indexOf("voice") >= 0 || text.indexOf("call") >= 0;
   }
 
   function addCount(counter, key, n) {
@@ -341,15 +385,8 @@
     });
   }
 
-  function summarizeValueLink(kindEdges, inputNames, topN) {
-    var valueCounter = {};
-    var statusCounter = {};
-    var reasonCounter = {};
+  function summarizeValueLink(kindEdges, inputNames) {
     var linkedInputs = {};
-    var destIsLine = false;
-    var destTypeName = "value";
-    var rawDests = {};
-    var parsedCombos = {};
     for (var i = 0; i < kindEdges.length; i++) {
       var parts = directedNames(kindEdges[i]);
       var src = parts[0];
@@ -364,75 +401,25 @@
         typeSrc = typeDst;
         typeDst = tmpT;
       }
-      destTypeName = knownTypeName(typeDst);
-      rawDests[dst] = 1;
-      if (typeDst === LINE_STATUS_TYPE_ID) {
-        destIsLine = true;
-        var statusReason = lineStatusParts(dst);
-        var status = statusReason[0];
-        var reason = statusReason[1];
-        var label = status || dst;
-        addCount(valueCounter, label);
-        if (status) addCount(statusCounter, status);
-        if (reason) addCount(reasonCounter, reason);
-        parsedCombos[JSON.stringify([status || dst, reason])] = 1;
-      } else {
-        addCount(valueCounter, dst);
-        parsedCombos[JSON.stringify([dst, ""])] = 1;
-      }
       if (inputNames[src]) linkedInputs[src] = 1;
     }
-    var lines = [];
-    var shownPack = topItems(valueCounter, topN);
-    if (destIsLine && nameSetSize(statusCounter)) {
-      var shownS = topItems(statusCounter, topN);
-      lines.push(
-        "  Status: " +
-          fmtCounts(shownS[0]) +
-          (shownS[1] ? " and " + shownS[1] + " more" : "") +
-          "."
-      );
-      if (nameSetSize(reasonCounter)) {
-        var shownR = topItems(reasonCounter, topN);
-        lines.push(
-          "  Suspension reasons: " +
-            fmtCounts(shownR[0]) +
-            (shownR[1] ? " and " + shownR[1] + " more reasons" : "") +
-            "."
-        );
-      }
-      lines.push(
-        "  There are " +
-          nameSetSize(rawDests) +
-          " different " +
-          destTypeName +
-          " nodes. The time on a Suspended label makes each one a separate node."
-      );
-      lines.push(
-        "  If we ignore the time, there are " +
-          nameSetSize(parsedCombos) +
-          " different statuses."
-      );
-    } else {
-      lines.push(
-        "  Values: " +
-          fmtCounts(shownPack[0]) +
-          (shownPack[1] ? " and " + shownPack[1] + " more (" + shownPack[2] + " links)" : "") +
-          "."
-      );
-      if (nameSetSize(rawDests)) {
-        lines.push("  There are " + nameSetSize(rawDests) + " different " + destTypeName + " nodes.");
-      }
+    var lines = [coverageStory(nameSetSize(linkedInputs), nameSetSize(inputNames))];
+    var isolated = [];
+    var allInputs = sortedKeys(inputNames);
+    for (var x = 0; x < allInputs.length; x++) {
+      if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
-    if (nameSetSize(inputNames)) {
-      lines.push(coverageLine(nameSetSize(linkedInputs), nameSetSize(inputNames)));
+    if (isolated.length) {
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
 
-  function summarizeIdentityLink(kindEdges, inputNames, topN) {
+  function summarizeIdentityLink(kindEdges, inputNames) {
     var shared = {};
     var linkedInputs = {};
+    var rels = [];
+    var seenRel = {};
     for (var i = 0; i < kindEdges.length; i++) {
       var parts = directedNames(kindEdges[i]);
       var src = parts[0];
@@ -441,14 +428,31 @@
         linkedInputs[src] = 1;
         if (!shared[dst]) shared[dst] = {};
         shared[dst][src] = 1;
+        if (!inputNames[dst]) {
+          var key = src + "\0" + dst;
+          if (!seenRel[key]) {
+            seenRel[key] = 1;
+            rels.push([src, dst]);
+          }
+        }
       }
       if (inputNames[dst]) {
         linkedInputs[dst] = 1;
         if (!shared[src]) shared[src] = {};
         shared[src][dst] = 1;
+        if (!inputNames[src]) {
+          var key2 = dst + "\0" + src;
+          if (!seenRel[key2]) {
+            seenRel[key2] = 1;
+            rels.push([dst, src]);
+          }
+        }
       }
     }
-    var lines = [coverageLine(nameSetSize(linkedInputs), nameSetSize(inputNames))];
+    var lines = [coverageStory(nameSetSize(linkedInputs), nameSetSize(inputNames))];
+    for (var r = 0; r < rels.length; r++) {
+      lines.push("The starting number " + rels[r][0] + " is linked to " + rels[r][1] + ".");
+    }
     var common = [];
     for (var name in shared) {
       if (!Object.prototype.hasOwnProperty.call(shared, name)) continue;
@@ -463,25 +467,12 @@
       return 0;
     });
     if (common.length) {
-      lines.push("  Shared nodes (linked to 2 or more starting numbers):");
-      for (var c = 0; c < Math.min(topN, common.length); c++) {
-        var preview = common[c][1].slice(0, 6).join(", ");
-        if (common[c][1].length > 6) preview += ", ...";
-        lines.push(
-          "    " +
-            shortName(common[c][0]) +
-            " is linked to " +
-            common[c][1].length +
-            " starting numbers (" +
-            preview +
-            ")."
-        );
+      lines.push("These nodes are linked to two or more starting numbers:");
+      for (var c = 0; c < common.length; c++) {
+        lines.push(common[c][0] + " is linked to " + joinAnd(common[c][1]) + ".");
       }
-      if (common.length > topN) {
-        lines.push("    ... and " + (common.length - topN) + " more shared nodes.");
-      }
-    } else {
-      lines.push("  No node is shared by two or more starting numbers.");
+    } else if (nameSetSize(inputNames)) {
+      lines.push("No node is shared by two or more starting numbers.");
     }
     var isolated = [];
     var allInputs = sortedKeys(inputNames);
@@ -489,14 +480,12 @@
       if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
     if (isolated.length) {
-      var isoPreview = isolated.slice(0, topN).join(", ");
-      var extra = isolated.length <= topN ? "" : " and " + (isolated.length - topN) + " more";
-      lines.push("  Starting numbers with no link of this kind: " + isoPreview + extra + ".");
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
 
-  function summarizePeerLink(kindEdges, inputNames, topN) {
+  function summarizePeerLink(kindEdges, inputNames, title) {
     var direct = [];
     var linkedInputs = {};
     var neighborToInputs = {};
@@ -517,25 +506,17 @@
       } else if (dstIn && !srcIn) {
         if (!neighborToInputs[src]) neighborToInputs[src] = {};
         neighborToInputs[src][dst] = 1;
-      } else {
-        if (srcIn) {
-          if (!neighborToInputs[dst]) neighborToInputs[dst] = {};
-          neighborToInputs[dst][src] = 1;
-        }
-        if (dstIn) {
-          if (!neighborToInputs[src]) neighborToInputs[src] = {};
-          neighborToInputs[src][dst] = 1;
-        }
       }
     }
     var total = nameSetSize(inputNames);
     var linked = nameSetSize(linkedInputs);
     var lines;
-    if (!total) lines = ["  No starting numbers were given."];
-    else if (linked === total) lines = ["  All " + total + " starting numbers appear in these links."];
-    else if (linked === 0) lines = ["  None of the " + total + " starting numbers appear in these links."];
-    else lines = ["  " + linked + " of " + total + " starting numbers appear in these links."];
+    if (!total) lines = ["No starting list was given."];
+    else if (linked === total) lines = ["Every starting number appears in these links."];
+    else if (linked === 0) lines = ["None of the starting numbers appear in these links."];
+    else lines = [linked + " of the " + total + " starting numbers appear in these links."];
 
+    var callish = looksLikeCall(title, "");
     if (direct.length) {
       direct.sort(function (a, b) {
         if (b[2] !== a[2]) return b[2] - a[2];
@@ -544,16 +525,15 @@
         if (a[1] > b[1]) return 1;
         return 0;
       });
-      lines.push("  Direct links between starting numbers: " + direct.length + " " + pairWord(direct.length) + ".");
-      for (var d = 0; d < Math.min(topN, direct.length); d++) {
+      if (callish) lines.push("These starting numbers called each other:");
+      else lines.push("These starting numbers are linked to each other:");
+      for (var d = 0; d < direct.length; d++) {
         var extra = direct[d][2] > 1 ? " (" + direct[d][2] + " times)" : "";
-        lines.push("    " + direct[d][0] + " -> " + direct[d][1] + extra);
+        if (callish) lines.push(direct[d][0] + " called " + direct[d][1] + extra + ".");
+        else lines.push(direct[d][0] + " → " + direct[d][1] + extra + ".");
       }
-      if (direct.length > topN) {
-        lines.push("    ... and " + (direct.length - topN) + " more direct pairs.");
-      }
-    } else {
-      lines.push("  No direct links between the starting numbers.");
+    } else if (total) {
+      lines.push("There are no direct links between the starting numbers.");
     }
 
     var common = [];
@@ -569,25 +549,13 @@
       return 0;
     });
     if (common.length) {
-      lines.push("  Shared outside numbers (2 or more starting numbers link to the same number):");
-      for (var c = 0; c < Math.min(topN, common.length); c++) {
-        var preview = common[c][1].slice(0, 6).join(", ");
-        if (common[c][1].length > 6) preview += ", ...";
-        lines.push(
-          "    " +
-            shortName(common[c][0]) +
-            " is linked to " +
-            common[c][1].length +
-            " starting numbers (" +
-            preview +
-            ")."
-        );
+      if (common.length === 1) lines.push("They also share an outside number:");
+      else lines.push("They also share outside numbers:");
+      for (var c = 0; c < common.length; c++) {
+        lines.push(common[c][0] + " is linked to " + joinAnd(common[c][1]) + ".");
       }
-      if (common.length > topN) {
-        lines.push("    ... and " + (common.length - topN) + " more shared numbers.");
-      }
-    } else {
-      lines.push("  No shared outside numbers among the starting list.");
+    } else if (total) {
+      lines.push("They do not share an outside number among the starting list.");
     }
 
     var isolated = [];
@@ -596,9 +564,7 @@
       if (!linkedInputs[allInputs[x]]) isolated.push(allInputs[x]);
     }
     if (isolated.length) {
-      var isoPreview = isolated.slice(0, topN).join(", ");
-      var extraIso = isolated.length <= topN ? "" : " and " + (isolated.length - topN) + " more";
-      lines.push("  Starting numbers with no link of this kind: " + isoPreview + extraIso + ".");
+      lines.push("Starting numbers with no link of this kind: " + joinAnd(isolated) + ".");
     }
     return lines;
   }
@@ -607,6 +573,7 @@
     req = req || {};
     data = data || {};
     topN = topN || TOP_N_DEFAULT;
+    var catalog = typeCatalog(data);
     var groups = requestInputs(req);
     var inputNames = inputNameSet(groups);
     if (!nameSetSize(inputNames)) {
@@ -617,44 +584,49 @@
     }
 
     var lines = [];
-
     var dateFrom = formatPeriod(req.dateFrom || "");
     var dateTo = formatPeriod(req.dateTo || "");
     var depthN = toInt(req.graphDepth, null);
-    if (dateFrom || dateTo) lines.push("Period: " + dateFrom + " to " + dateTo);
-    if (depthN === 1) {
-      lines.push("Scope: direct links only (one step from the starting list).");
-    } else if (depthN) {
-      lines.push("Scope: up to " + depthN + " steps from the starting list.");
-    }
+    var openBits = [];
     if (groups.length) {
+      var parts = [];
       for (var g = 0; g < groups.length; g++) {
-        var preview = groups[g].values.slice(0, 8).join(", ");
-        var extra = groups[g].values.length > 8 ? ", ... (" + groups[g].values.length + " in total)" : "";
-        lines.push(
-          "Starting " + groups[g].type_name + " list (" + groups[g].values.length + "): " + preview + extra
-        );
+        var n = groups[g].values.length;
+        var label = groups[g].type_name;
+        var unit = n === 1 ? "number" : "numbers";
+        if (label !== "MSISDN") unit = n === 1 ? "item" : "items";
+        parts.push(n + " " + label + " " + unit + " (" + joinAnd(groups[g].values) + ")");
       }
+      openBits.push("This search looked at " + joinAnd(parts));
     } else if (nameSetSize(inputNames)) {
       var highlighted = sortedKeys(inputNames);
-      extra = highlighted.length > 8 ? ", ... (" + highlighted.length + " in total)" : "";
-      lines.push(
-        "Starting list from the graph (" + highlighted.length + "): " +
-          highlighted.slice(0, 8).join(", ") + extra
+      var unitH = highlighted.length === 1 ? "number" : "numbers";
+      openBits.push(
+        "This search used " + highlighted.length + " highlighted " + unitH + " from the graph (" + joinAnd(highlighted) + ")"
       );
     } else {
-      lines.push("Starting list: none in the request; using highlighted nodes from the result.");
+      openBits.push("This search had no starting list in the request");
     }
-    lines.push("");
+    if (dateFrom || dateTo) openBits.push("from " + dateFrom + " to " + dateTo);
+    var opener = openBits.join(" ") + ".";
+    if (depthN === 1) opener += " It only followed direct links (one step from the starting list).";
+    else if (depthN) opener += " It followed up to " + depthN + " steps from the starting list.";
+    lines.push(opener);
 
     var code = data.responseCode;
     var warn = data.warningMsg;
     var nNodes = vertices(data).length;
     var nLinks = edges(data).length;
-    var result = code === 0 || code === "0" || code === undefined || code === null ? "OK" : "not OK (code " + code + ")";
-    var resultLine = "Result: " + result + ". " + nNodes + " nodes, " + nLinks + " links.";
-    if (warn) resultLine += " Note: " + warn;
-    lines.push(resultLine);
+    var result =
+      code === 0 || code === "0" || code === undefined || code === null
+        ? "The result came back OK."
+        : "The result did not come back OK (code " + code + ").";
+    var nodeWord = nNodes === 1 ? "node" : "nodes";
+    var linkWord = nLinks === 1 ? "link" : "links";
+    result += " The graph has " + nNodes + " " + nodeWord + " and " + nLinks + " " + linkWord + ".";
+    if (warn) result += " Note: " + warn;
+    lines.push("");
+    lines.push(result);
     if (!nNodes && !nLinks) {
       lines.push("");
       lines.push("This search returned no nodes and no links.");
@@ -662,47 +634,51 @@
     }
 
     lines.push("");
-    lines.push("----- NODES -----");
+    lines.push("What is in the graph");
     var rows = censusNodes(data, inputNames);
     for (var r = 0; r < rows.length; r++) {
       var row = rows[r];
-      var bits = [];
-      if (row.in_input && row.in_input === row.count) {
-        bits.push("all " + row.in_input + " were in the starting list");
+      var count = row.count;
+      var tname = row.type_name || typeLabel(row.type_id, catalog);
+      var head = count === 1 ? "There is 1 " + tname + " node" : "There are " + count + " " + tname + " nodes";
+      var extras = [];
+      if (row.in_input && row.in_input === count) {
+        extras.push(count > 1 ? "all of them were in the starting list" : "it was in the starting list");
       } else if (row.in_input) {
-        bits.push(row.in_input + " were in the starting list");
+        extras.push(row.in_input + (row.in_input === 1 ? " was in the starting list" : " were in the starting list"));
       }
-      var extraNodes = row.count - row.in_input;
-      if (extraNodes > 0 && !VALUE_TYPE_IDS[row.type_id]) bits.push(extraNodes + " extra");
-      if (row.isolated) bits.push(row.isolated + " with no links");
-      var suffix = bits.length ? " (" + bits.join(", ") + ")" : "";
+      var extraNodes = count - row.in_input;
+      if (extraNodes > 0 && !VALUE_TYPE_IDS[row.type_id]) {
+        if (extraNodes === count) {
+          extras.push(count > 1 ? "none of them were in the starting list" : "it was not in the starting list");
+        } else {
+          extras.push(extraNodes + " extra");
+        }
+      }
+      if (row.isolated) {
+        if (count === 1) extras.push("it has no links");
+        else extras.push(row.isolated + " with no links");
+      }
       var namesBit = "";
-      if (
-        !VALUE_TYPE_IDS[row.type_id] &&
-        row.type_id !== MSISDN_TYPE_ID &&
-        row.count <= 8 &&
-        row.names &&
-        row.names.length
-      ) {
-        namesBit = ": " + row.names.join(", ");
+      if (!VALUE_TYPE_IDS[row.type_id] && row.type_id !== MSISDN_TYPE_ID && row.names && row.names.length) {
+        namesBit = " (" + joinAnd(row.names) + ")";
       }
-      lines.push(row.count + " " + row.type_name + " nodes" + suffix + namesBit + ".");
+      var suffix = extras.length ? "; " + extras.join(", ") : "";
+      lines.push(head + namesBit + suffix + ".");
       if (row.type_id === LINE_STATUS_TYPE_ID) {
         lines.push(
-          "  These are status labels, not one node per number. If several numbers are Active, they share one Active node. If numbers are Suspended at different times, each time is a separate node."
+          "These are status labels, not one node per number. If several numbers are Active, they share one Active node. If numbers are Suspended at different times, each time is a separate node."
         );
       } else if (VALUE_TYPE_IDS[row.type_id]) {
         lines.push(
-          "  These are shared labels, not one node per number. Several numbers can share the same " +
-            row.type_name +
-            " node."
+          "These are shared labels, not one node per number. Several numbers can share the same " + tname + " node."
         );
       }
     }
 
     var edgeGroups = groupEdges(data);
     lines.push("");
-    lines.push("----- LINKS -----");
+    lines.push("How they are linked");
     if (!edgeGroups.length) lines.push("There are no links in this result.");
     for (var e = 0; e < edgeGroups.length; e++) {
       var grp = edgeGroups[e];
@@ -718,18 +694,16 @@
       var tb = topPair[1] === "null" || topPair[1] === "undefined" ? null : toInt(topPair[1], topPair[1]);
       var kind = classifyLink(ta, tb, nameSetSize(destNames), grp.edges.length);
       var title = friendlyLinkName(grp.name, grp.alias);
-      var nKind = grp.edges.length;
-      var linkWord = nKind === 1 ? "link" : "links";
       lines.push("");
       lines.push(title);
-      lines.push("  " + nKind + " " + linkWord + " from " + knownTypeName(ta) + " to " + knownTypeName(tb) + ".");
-      if (kind === "value") lines = lines.concat(summarizeValueLink(grp.edges, inputNames, topN));
-      else if (kind === "peer") lines = lines.concat(summarizePeerLink(grp.edges, inputNames, topN));
-      else lines = lines.concat(summarizeIdentityLink(grp.edges, inputNames, topN));
+      if (kind === "value") lines = lines.concat(summarizeValueLink(grp.edges, inputNames));
+      else if (kind === "peer") lines = lines.concat(summarizePeerLink(grp.edges, inputNames, title));
+      else lines = lines.concat(summarizeIdentityLink(grp.edges, inputNames));
     }
 
     return lines.join("\n") + "\n";
   }
+
 
   function vertexLooksReal(v) {
     if (!v || typeof v !== "object") return false;
