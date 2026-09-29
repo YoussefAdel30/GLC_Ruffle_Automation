@@ -18,9 +18,10 @@ cat "$tmp/line.txt"
 grep -q "3 MSISDN" "$tmp/line.txt"
 grep -q "2 Line Status" "$tmp/line.txt"
 grep -q "not one node per number" "$tmp/line.txt"
+grep -q "Values:" "$tmp/line.txt"
 grep -q "Active" "$tmp/line.txt"
-if grep -q "Values:" "$tmp/line.txt"; then
-  echo "unexpected Values rollup in business report" >&2
+if grep -q "and 5 more" "$tmp/line.txt"; then
+  echo "unexpected early truncation in business report" >&2
   exit 1
 fi
 if grep -q "links from" "$tmp/line.txt"; then

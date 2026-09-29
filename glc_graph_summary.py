@@ -27,6 +27,7 @@ VALUE_TYPE_IDS = {
     WALLET_PROFILE_TYPE_ID,
     WALLET_STATUS_TYPE_ID,
     LINE_STATUS_TYPE_ID,
+    RATE_PLAN_TYPE_ID,
 }
 IDENTITY_TYPE_IDS = {
     MSISDN_TYPE_ID,
@@ -37,6 +38,7 @@ IDENTITY_TYPE_IDS = {
 
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 TOP_N_DEFAULT = 8
+MAX_DISTINCT_VALUES = 100
 
 
 def load_json(path):
@@ -267,6 +269,41 @@ def classify_link(type_a, type_b, unique_dest, n_edges):
     return "identity"
 
 
+def display_value(name):
+    text = _BR_RE.sub(" ", str(name or "")).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def format_unique_counts(counter, limit=MAX_DISTINCT_VALUES):
+    items = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    extra = 0
+    if len(items) > limit:
+        extra = len(items) - limit
+        items = items[:limit]
+    parts = ["%s %s" % (n, display_value(name)) for name, n in items]
+    if not parts:
+        return ""
+    text = ", ".join(parts)
+    if extra:
+        text += ", and %s more" % extra
+    return text
+
+
+def capped(items, limit=MAX_DISTINCT_VALUES):
+    extra = 0
+    if len(items) > limit:
+        extra = len(items) - limit
+        items = items[:limit]
+    return items, extra
+
+
+def join_capped(items, limit=MAX_DISTINCT_VALUES):
+    shown, extra = capped(list(items), limit)
+    if extra:
+        return "%s, and %s more" % (", ".join(shown), extra)
+    return join_and(shown)
+
+
 def join_and(items):
     items = [str(x) for x in items if x not in (None, "")]
     if not items:
@@ -372,17 +409,22 @@ def group_edges(data):
 
 def summarize_value_link(kind_edges, input_names):
     linked_inputs = set()
+    value_counter = Counter()
     for edge in kind_edges:
         src, dst, type_src, type_dst = directed_names(edge)
         if type_src in VALUE_TYPE_IDS and type_dst not in VALUE_TYPE_IDS:
             src, dst, type_src, type_dst = dst, src, type_dst, type_src
+        value_counter[dst] += 1
         if src in input_names:
             linked_inputs.add(src)
     lines = [coverage_story(len(linked_inputs), len(input_names))]
+    listed = format_unique_counts(value_counter)
+    if listed:
+        lines.append("Values: %s." % listed)
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_and(isolated)
+            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
         )
     return lines
 
@@ -411,8 +453,11 @@ def summarize_identity_link(kind_edges, input_names):
                     seen_rel.add(key)
                     rels.append(key)
     lines = [coverage_story(len(linked_inputs), len(input_names) or 0)]
+    rels, extra_rels = capped(rels)
     for start, partner in rels:
         lines.append("The starting number %s is linked to %s." % (start, partner))
+    if extra_rels:
+        lines.append("and %s more." % extra_rels)
     common = [
         (name, sorted(members))
         for name, members in shared.items()
@@ -421,16 +466,17 @@ def summarize_identity_link(kind_edges, input_names):
     common.sort(key=lambda row: (-len(row[1]), row[0]))
     if common:
         lines.append("These nodes are linked to two or more starting numbers:")
+        common, extra_common = capped(common)
         for name, members in common:
-            lines.append(
-                "%s is linked to %s." % (name, join_and(members))
-            )
+            lines.append("%s is linked to %s." % (name, join_and(members)))
+        if extra_common:
+            lines.append("and %s more." % extra_common)
     elif input_names:
         lines.append("No node is shared by two or more starting numbers.")
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_and(isolated)
+            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
         )
     return lines
 
@@ -473,12 +519,15 @@ def summarize_peer_link(kind_edges, input_names, title):
             lines.append("These starting numbers called each other:")
         else:
             lines.append("These starting numbers are linked to each other:")
+        direct, extra_direct = capped(direct)
         for src, dst, n in direct:
             extra = " (%s times)" % n if n > 1 else ""
             if callish:
                 lines.append("%s called %s%s." % (src, dst, extra))
             else:
                 lines.append("%s → %s%s." % (src, dst, extra))
+        if extra_direct:
+            lines.append("and %s more." % extra_direct)
     elif input_names:
         lines.append("There are no direct links between the starting numbers.")
 
@@ -493,17 +542,18 @@ def summarize_peer_link(kind_edges, input_names, title):
             lines.append("They also share an outside number:")
         else:
             lines.append("They also share outside numbers:")
+        common, extra_common = capped(common)
         for name, members in common:
-            lines.append(
-                "%s is linked to %s." % (name, join_and(members))
-            )
+            lines.append("%s is linked to %s." % (name, join_and(members)))
+        if extra_common:
+            lines.append("and %s more." % extra_common)
     elif input_names:
         lines.append("They do not share an outside number among the starting list.")
 
     isolated = [n for n in sorted(input_names) if n not in linked_inputs]
     if isolated:
         lines.append(
-            "Starting numbers with no link of this kind: %s." % join_and(isolated)
+            "Starting numbers with no link of this kind: %s." % join_capped(isolated)
         )
     return lines
 
@@ -538,7 +588,7 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
             if label != "MSISDN":
                 unit = "item" if n == 1 else "items"
             parts.append(
-                "%s %s %s (%s)" % (n, label, unit, join_and(group["values"]))
+                "%s %s %s (%s)" % (n, label, unit, join_capped(group["values"]))
             )
         open_bits.append("This search looked at %s" % join_and(parts))
     elif input_names:
@@ -546,7 +596,7 @@ def build_summary(req, data, top_n=TOP_N_DEFAULT):
         unit = "number" if len(highlighted) == 1 else "numbers"
         open_bits.append(
             "This search used %s highlighted %s from the graph (%s)"
-            % (len(highlighted), unit, join_and(highlighted))
+            % (len(highlighted), unit, join_capped(highlighted))
         )
     else:
         open_bits.append("This search had no starting list in the request")
@@ -771,8 +821,10 @@ def cmd_selftest(_args):
     assert "3 MSISDN" in text, text
     assert "2 Line Status" in text, text
     assert "not one node per number" in text, text
+    assert "Values:" in text, text
     assert "Active" in text
-    assert "Values:" not in text, text
+    assert "Suspended" in text
+    assert "and 5 more" not in text, text
     assert "links from" not in text, text
     assert "type-" not in text, text
     assert "linkTypeId" not in text, text
@@ -794,6 +846,15 @@ def cmd_selftest(_args):
 
     assert format_period("2026%2F09%2F08%2000%3A00%3A00") == "8 Sep 2026, 00:00:00"
     assert format_period("2026/09/08 23:59:59") == "8 Sep 2026, 23:59:59"
+    many = Counter()
+    for i in range(101):
+        many["plan-%03d" % i] = 1
+    many_text = format_unique_counts(many)
+    assert "and 1 more" in many_text, many_text
+    assert many_text.count("plan-") == 100, many_text
+    few = format_unique_counts(Counter({"Gold": 3, "Silver": 1}))
+    assert few == "3 Gold, 1 Silver", few
+    assert "more" not in few
     owns_req = {
         "graphDepth": 1,
         "dateFrom": "2026%2F09%2F08%2000%3A00%3A00",

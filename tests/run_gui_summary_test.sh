@@ -55,6 +55,10 @@ grep -F "ADELY1" "$tmp/js-owns.txt"
 grep -F "201066257228" "$tmp/js-owns.txt"
 grep -F "8 Sep 2026" "$tmp/js-owns.txt"
 grep -F "The graph has 2 nodes and 1 link." "$tmp/js-owns.txt"
+if grep -q "Values:" "$tmp/js-owns.txt"; then
+  echo "Owns report should not list Values" >&2
+  exit 1
+fi
 if grep -q "%2F" "$tmp/js-owns.txt"; then
   echo "dates still URL-encoded" >&2
   exit 1
@@ -210,6 +214,18 @@ node -e '
   if (ownsFp2.split("||")[0] !== ownsFp.split("||")[0]) {
     throw new Error("fingerprint should not depend on vertex order");
   }
+  const many = {};
+  for (let i = 0; i < 101; i++) {
+    const tag = "plan-" + ("000" + i).slice(-3);
+    many[tag] = 1;
+  }
+  const manyText = api.formatUniqueCounts(many);
+  if (manyText.indexOf("and 1 more") < 0) throw new Error("101 distinct values should truncate: " + manyText);
+  if ((manyText.match(/plan-/g) || []).length !== 100) {
+    throw new Error("should list 100 plans: " + manyText);
+  }
+  const few = api.formatUniqueCounts({ Gold: 3, Silver: 1 });
+  if (few !== "3 Gold, 1 Silver") throw new Error("few unique counts: " + few);
   console.log("xhr_body_ok");
 ' "$ROOT/custom-glc-summary.js" 
 
