@@ -227,6 +227,57 @@ node -e '
   const few = api.formatUniqueCounts({ Gold: 3, Silver: 1 });
   if (few !== "3 Gold, 1 Silver") throw new Error("few unique counts: " + few);
   console.log("xhr_body_ok");
-' "$ROOT/custom-glc-summary.js" 
+' "$ROOT/custom-glc-summary.js"
+
+echo "=== fold long lists behind and N more ==="
+node -e '
+  const api = require(process.argv[1]);
+  if (api.PREVIEW_LIMIT !== 20) throw new Error("preview limit should be 20");
+
+  const twenty = [];
+  for (let i = 0; i < 20; i++) twenty.push("1 plan-" + i);
+  const twentyHtml = api.foldReportHtml("Values: " + twenty.join(", ") + ".");
+  if (twentyHtml.indexOf("glc-more") >= 0) throw new Error("20 values should stay open: " + twentyHtml);
+
+  const items = [];
+  for (let i = 0; i < 25; i++) items.push("1 plan-" + i);
+  const values = "Values: " + items.join(", ") + ".";
+  const html = api.foldReportHtml(values);
+  if (html.indexOf("glc-more") < 0) throw new Error("25 values should fold: " + html);
+  if (html.indexOf("and 5 more") < 0) throw new Error("should say and 5 more: " + html);
+  if (html.indexOf("plan-0") < 0 || html.indexOf("plan-19") < 0) {
+    throw new Error("first 20 values should stay visible: " + html);
+  }
+  if (!/glc-fold-rest" hidden>/.test(html) && !/glc-fold-rest" hidden/.test(html)) {
+    throw new Error("rest should start hidden: " + html);
+  }
+  if (html.indexOf("plan-20") < 0) throw new Error("hidden rest should keep remaining values: " + html);
+  if (html.indexOf("<script>") >= 0) throw new Error("fold html must escape tags");
+
+  const lines = [];
+  for (let i = 0; i < 22; i++) {
+    lines.push("The starting number 201" + i + " is linked to ADELY" + i + ".");
+  }
+  const lineHtml = api.foldReportHtml(lines.join("\n"));
+  if (lineHtml.indexOf("and 2 more") < 0) throw new Error("22 detail lines should fold: " + lineHtml);
+  if (lineHtml.indexOf("glc-fold-block") < 0) throw new Error("detail lines should use block fold");
+
+  const names = [];
+  for (let i = 0; i < 21; i++) names.push("USER" + i);
+  const nodeLine = "There are 21 User nodes (" + names.join(", ") + "); none of them were in the starting list.";
+  const nodeHtml = api.foldReportHtml(nodeLine);
+  if (nodeHtml.indexOf("and 1 more") < 0) throw new Error("21 node names should fold: " + nodeHtml);
+
+  const isolated = [];
+  for (let i = 0; i < 21; i++) isolated.push("2010000000" + i);
+  const isoLine = "Starting numbers with no link of this kind: " + isolated.join(", ") + ".";
+  const isoHtml = api.foldReportHtml(isoLine);
+  if (isoHtml.indexOf("and 1 more") < 0) throw new Error("isolated list should fold: " + isoHtml);
+
+  const escaped = api.foldReportHtml("Values: 1 <script>alert(1)</script>.");
+  if (escaped.indexOf("<script>") >= 0) throw new Error("must escape script tags");
+  if (escaped.indexOf("&lt;script&gt;") < 0) throw new Error("script should be escaped: " + escaped);
+  console.log("fold_report_ok");
+' "$ROOT/custom-glc-summary.js"
 
 echo "gui_summary_tests_ok"

@@ -35,6 +35,7 @@
   IDENTITY_TYPE_IDS[USER_TYPE_ID] = 1;
   IDENTITY_TYPE_IDS[ID_TYPE_ID] = 1;
   var TOP_N_DEFAULT = 8;
+  var PREVIEW_LIMIT = 20;
   var SEARCH_MARK = "searchByNodes";
   var WAIT_MS = 20 * 60 * 1000;
   var GENERIC_ALIAS = { "": 1, has: 1, "has a": 1, contains: 1, is: 1, of: 1 };
@@ -1137,6 +1138,139 @@
     return String(url || "").indexOf(SEARCH_MARK) >= 0;
   }
 
+  function escapeHtml(text) {
+    return String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function splitPrettyList(text) {
+    var raw = String(text || "").replace(/\.\s*$/, "").trim();
+    if (!raw) return [];
+    return raw.split(/,\s+and\s+|,\s+|\s+and\s+/).filter(Boolean);
+  }
+
+  function splitValueItems(text) {
+    var raw = String(text || "").replace(/\.\s*$/, "").trim();
+    if (!raw) return [];
+    return raw.split(/,\s+(?=\d+\s)/).filter(Boolean);
+  }
+
+  function moreLabel(n) {
+    return "and " + n + " more";
+  }
+
+  function foldChunk(visibleHtml, hiddenHtml, extraCount, block) {
+    var cls = "glc-fold" + (block ? " glc-fold-block" : "");
+    return (
+      visibleHtml +
+      (block ? "\n" : "") +
+      '<span class="' +
+      cls +
+      '">' +
+      '<span class="glc-fold-rest" hidden>' +
+      hiddenHtml +
+      "</span>" +
+      '<button type="button" class="glc-more" data-n="' +
+      extraCount +
+      '">' +
+      moreLabel(extraCount) +
+      "</button></span>"
+    );
+  }
+
+  function foldItemList(items, limit, joiner) {
+    if (!items || items.length <= limit) return null;
+    var join = joiner || ", ";
+    var visible = items
+      .slice(0, limit)
+      .map(escapeHtml)
+      .join(join);
+    var hidden = join + items.slice(limit).map(escapeHtml).join(join);
+    return foldChunk(visible, hidden, items.length - limit, false);
+  }
+
+  function foldPrefixedList(line, prefix, splitter, limit) {
+    if (line.indexOf(prefix) !== 0) return null;
+    var rest = line.slice(prefix.length);
+    var hadDot = /\.$/.test(rest);
+    var items = splitter(rest);
+    var folded = foldItemList(items, limit);
+    if (!folded) return null;
+    return escapeHtml(prefix) + folded + (hadDot ? "." : "");
+  }
+
+  function foldParenLists(line, limit) {
+    var re = /\(([^)]+)\)/g;
+    var out = "";
+    var last = 0;
+    var any = false;
+    var m;
+    while ((m = re.exec(line))) {
+      var items = splitPrettyList(m[1]);
+      out += escapeHtml(line.slice(last, m.index + 1));
+      if (items.length > limit) {
+        any = true;
+        out += foldItemList(items, limit);
+      } else {
+        out += escapeHtml(m[1]);
+      }
+      out += ")";
+      last = m.index + m[0].length;
+    }
+    if (!any) return null;
+    out += escapeHtml(line.slice(last));
+    return out;
+  }
+
+  function isDetailLine(line) {
+    if (/^The starting number .+ is linked to /.test(line)) return true;
+    if (/ → /.test(line)) return true;
+    if (/ called /.test(line) && /\.$/.test(line) && !/^These /.test(line)) return true;
+    if (/ is linked to /.test(line) && !/^No node is /.test(line)) return true;
+    return false;
+  }
+
+  function foldLineRun(run, limit) {
+    if (run.length <= limit) return escapeHtml(run.join("\n"));
+    var visible = escapeHtml(run.slice(0, limit).join("\n"));
+    var hidden = escapeHtml(run.slice(limit).join("\n"));
+    return foldChunk(visible, hidden, run.length - limit, true);
+  }
+
+  function foldReportHtml(text, limit) {
+    limit = toInt(limit, PREVIEW_LIMIT);
+    var lines = String(text || "").split("\n");
+    var html = [];
+    var i = 0;
+    while (i < lines.length) {
+      var line = lines[i];
+      var folded =
+        foldPrefixedList(line, "Values: ", splitValueItems, limit) ||
+        foldPrefixedList(line, "Starting numbers with no link of this kind: ", splitPrettyList, limit) ||
+        foldParenLists(line, limit);
+      if (folded) {
+        html.push(folded);
+        i += 1;
+        continue;
+      }
+      if (isDetailLine(line)) {
+        var run = [];
+        while (i < lines.length && isDetailLine(lines[i])) {
+          run.push(lines[i]);
+          i += 1;
+        }
+        html.push(foldLineRun(run, limit));
+        continue;
+      }
+      html.push(escapeHtml(line));
+      i += 1;
+    }
+    return html.join("\n");
+  }
+
   var api = {
     buildSummary: buildSummary,
     parseRequestBody: parseRequestBody,
@@ -1150,7 +1284,9 @@
     looksLikeGraph: looksLikeGraph,
     isEmptySearchResult: isEmptySearchResult,
     graphFingerprint: graphFingerprint,
-    formatUniqueCounts: formatUniqueCounts
+    formatUniqueCounts: formatUniqueCounts,
+    foldReportHtml: foldReportHtml,
+    PREVIEW_LIMIT: PREVIEW_LIMIT
   };
 
   if (typeof module !== "undefined" && module.exports) {
@@ -1740,6 +1876,11 @@
       "#glcSummaryDock.is-loading .glc-copy-label,#glcSummaryDock.is-loading .glc-max{display:none;}",
       "#glcSummaryDock pre{margin:0;padding:16px 18px 20px;white-space:pre-wrap;word-break:break-word;user-select:text;",
       "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;color:#dbeafe;}",
+      "#glcSummaryDock .glc-more{appearance:none;border:0;background:transparent;color:#7dd3fc;cursor:pointer;",
+      "font:inherit;font-weight:600;text-decoration:underline;padding:0;margin:0 0 0 .35em;}",
+      "#glcSummaryDock .glc-more:hover{color:#e0f2fe;}",
+      "#glcSummaryDock .glc-fold-block .glc-more{display:inline;margin:.15em 0 0;}",
+      "#glcSummaryDock .glc-fold-rest[hidden]{display:none;}",
       "#glcSummaryDock .glc-resize{position:absolute;left:0;top:0;width:14px;height:14px;cursor:nwse-resize;display:none;}",
       "#glcSummaryDock:not(.is-min):not(.is-max) .glc-resize{display:block;background:linear-gradient(135deg,transparent 50%,rgba(148,163,184,.5) 50%);border-top-left-radius:14px;}"
     ].join("");
@@ -1823,6 +1964,18 @@
         setDockMode(dock, "open");
       }
     });
+    dock.querySelector(".glc-body").addEventListener("click", function (e) {
+      var btn = e.target;
+      if (!btn || !btn.classList || !btn.classList.contains("glc-more")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var fold = btn.parentNode;
+      var rest = fold.querySelector(".glc-fold-rest");
+      var open = fold.classList.toggle("is-open");
+      if (rest) rest.hidden = !open;
+      var n = btn.getAttribute("data-n") || "0";
+      btn.textContent = open ? "less" : moreLabel(n);
+    });
     var handle = dock.querySelector(".glc-resize");
     handle.addEventListener("mousedown", function (e) {
       if (dock.classList.contains("is-min") || dock.classList.contains("is-max")) return;
@@ -1894,7 +2047,9 @@
     setDockMode(dock, "min");
     dock.querySelector(".glc-title-text").textContent = "GLC network report";
     dock.querySelector(".glc-sub").textContent = isError ? "Failed · click to open" : "Ready · click to open";
-    dock.querySelector("pre").textContent = text;
+    var pre = dock.querySelector("pre");
+    if (isError) pre.textContent = text;
+    else pre.innerHTML = foldReportHtml(text);
     dock.__reportText = text;
   }
 
