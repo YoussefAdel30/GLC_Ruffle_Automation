@@ -1,0 +1,8 @@
+grep -n -E 'query_engine|qrybld|executeQueryById|"vertica"' /FMS/ERM801/erm/config/erm_config.json | head -60
+grep -n -E 'queryBuilderDS|vertica|xa-datasource' /FMS/ERM801/erm/jboss/jboss-eap/cv_webclient/configuration/cv_webclient.xml | head -40
+grep -a 'qrybld.svc.item.notexist\|executeQueryById' /FMS/ERM801/erm/jboss/jboss-eap/cv_webclient/log/server.log | tail -20
+SELECT owner, table_name
+FROM all_tables
+WHERE owner IN ('FMSUSER','INTERNAL_DFMS')
+  AND REGEXP_LIKE(table_name, 'QRY|QUERY|QRYBLD|QB_')
+ORDER BY 1,2;
