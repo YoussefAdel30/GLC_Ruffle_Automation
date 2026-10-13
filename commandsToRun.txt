@@ -1,15 +1,100 @@
-python - <<'PY'
-p='/FMS/ERM801/erm/config/erm_config.json'
-lines=open(p).read().splitlines(True)
-for i,ln in enumerate(lines):
-    if '"name"' in ln and 'vertica.enabled' in ln:
-        print('FOUND', i+1, ln.rstrip())
-        print(' NEXT', lines[i+1].rstrip())
-        if '"value"' in lines[i+1]:
-            indent=lines[i+1][:len(lines[i+1])-len(lines[i+1].lstrip())]
-            comma=',' if lines[i+1].rstrip().endswith(',') else ''
-            lines[i+1]='%s"value" : "true"%s\n' % (indent, comma)
-            print(' NEW', lines[i+1].rstrip())
-        break
-open(p,'w').writelines(lines)
-PY
+part of the log :
+
+14:55:46,606 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'PartitionCache' loaded 3 items in 22 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,629 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'FraudTypeCache' loaded 324 items in 23 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,648 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'GroupThresholdCache' loaded 39 items in 18 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,654 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'ExchangeCache' loaded 0 items in 5 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,662 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'ActionCache' loaded 45 items in 8 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,667 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'OffPeakDayCache' loaded 3 items in 5 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,818 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'CustomToolbarCache' loaded 13 items in 151 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,823 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'AuditActionTypeCache' loaded 26 items in 4 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,829 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'AuditObjectTypeCache' loaded 52 items in 6 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,865 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'UserCache' loaded 37 items in 35 millis. Expires in 5999 seconds [ 1:39:59 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,867 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90)
+**************************************************
+Cache 'LinkAnalysisCache' loaded 1 items in 1 millis. Expires in 6000 seconds [ 1:40:00 (hh:mm:ss) ]
+**************************************************
+
+
+14:55:46,868 INFO  [com.hp.erm.common.cache.ERMApplicationContext] (ServerService Thread Pool -- 90) Primary instance loaded.
+14:55:46,868 INFO  [com.hp.erm.common.services.CacheManager] (ServerService Thread Pool -- 90) Cache Loading completed
+14:55:46,868 INFO  [com.hp.erm.common.services.CacheManager] (ServerService Thread Pool -- 90) Cache ReLoading Scheduled
+14:55:46,882 INFO  [com.hp.erm.common.heartbeat.services.HeartBeatUpdaterManager] (ServerService Thread Pool -- 90) HeartBeat updater starting...
+14:55:46,882 INFO  [com.hp.erm.common.heartbeat.services.HeartBeatUpdaterManager] (ServerService Thread Pool -- 90) HeartBeat update scheduled
+14:55:46,886 INFO  [com.hp.erm.common.services.CustomStartupManager] (ServerService Thread Pool -- 73) All modules started. Startup successfully completed.
+14:55:46,891 INFO  [org.wildfly.extension.undertow] (ServerService Thread Pool -- 73) WFLYUT0021: Registered web context: '/webservices/ERMCommonServices' for server 'default-server'
+14:55:46,976 INFO  [org.jboss.as.server] (ServerService Thread Pool -- 40) WFLYSRV0010: Deployed "erm-22.0.ear" (runtime-name : "erm-22.0.ear")
+14:55:46,977 INFO  [org.jboss.as.server] (ServerService Thread Pool -- 40) WFLYSRV0010: Deployed "FMSInsight.ear" (runtime-name : "FMSInsight.ear")
+14:55:47,806 INFO  [org.jboss.as.server] (Controller Boot Thread) WFLYSRV0212: Resuming server
+14:55:47,828 INFO  [org.jboss.as] (Controller Boot Thread) WFLYSRV0025: JBoss EAP 7.4.3.GA (WildFly Core 15.0.6.Final-redhat-00003) started in 25896ms - Started 7160 of 7317 services (557 services are lazy, passive or on-demand)
+14:55:47,833 INFO  [org.jboss.as] (Controller Boot Thread) WFLYSRV0062: Http management interface listening on http://127.0.0.1:9990/management and https://127.0.0.1:9443/management
+14:55:47,834 INFO  [org.jboss.as] (Controller Boot Thread) WFLYSRV0053: Admin console listening on http://127.0.0.1:9990 and https://127.0.0.1:9443
+14:55:47,836 INFO  [com.arjuna.ats.jbossatx] (Controller Boot Thread) ARJUNA032035: Resuming transaction recovery manager
+14:55:47,996 INFO  [com.hp.common.config.Settings] (default task-2) loaded configuration from file: /FMS/ERM801/erm/jboss/jboss-eap/cv_webclient/configuration/a2a.properties
+14:55:48,069 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-2) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+14:55:48,069 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-1) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+14:55:48,069 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-3) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+14:55:50,695 INFO  [com.hp.common.logging.JBossConfigUtils] (EJB default - 1) Connectiing to 127.0.0.1:9443 ....
+14:55:50,804 INFO  [com.hp.common.logging.JBossConfigUtils] (EJB default - 1) Connectiing to 127.0.0.1:9443 .... Failed
+14:55:50,804 INFO  [com.hp.common.logging.JBossConfigUtils] (EJB default - 1) Connectiing to 127.0.0.1:9990 ....
+14:55:51,205 INFO  [org.jboss.as.cli.CommandContext] (EJB default - 1) Warning! There were errors trying to load extensions. For more details, please, execute 'extension-commands --errors'
+14:55:51,205 INFO  [stdout] (EJB default - 1) Warning! There were errors trying to load extensions. For more details, please, execute 'extension-commands --errors'
+14:55:51,206 INFO  [com.hp.common.logging.JBossConfigUtils] (EJB default - 1) Connectiing to 127.0.0.1:9990 .... Done
+14:55:51,344 INFO  [org.jboss.as.cli.CommandContext] (EJB default - 1) {"outcome" => "success"}
+14:55:51,345 INFO  [stdout] (EJB default - 1) {"outcome" => "success"}
+14:55:54,268 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-3) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+14:55:57,148 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-3) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+14:55:57,469 WARN  [com.hp.common.services.CommonBasicDataRetriever] (default task-3) End retrieveUserInfoByToken: No data found for token: null
+14:55:57,471 WARN  [com.hp.erm.casemanagement.case_reminders.services.ReminderManager] (default task-3) UserAccount retrieved is NULL for user token: null. Skipping checking for new messages.
+14:56:03,802 INFO  [org.apache.cxf.phase.PhaseInterceptorChain] (default task-3) Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+
