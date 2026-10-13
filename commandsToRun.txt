@@ -6,3 +6,86 @@ FROM all_tables
 WHERE owner IN ('FMSUSER','INTERNAL_DFMS')
   AND REGEXP_LIKE(table_name, 'QRY|QUERY|QRYBLD|QB_')
 ORDER BY 1,2;
+
+
+Results:
+query:
+INTERNAL_DFMS	QB_CUSTOM_QUERIES
+INTERNAL_DFMS	QB_CUSTOM_TABLES
+INTERNAL_DFMS	QB_QSEQUENCE_ITEMS
+INTERNAL_DFMS	QB_QUERIES_FOLDERS
+terminal:
+[FMSuser@dchqfms-stg:~]$ grep -n -E 'query_engine|qrybld|executeQueryById|"vertica"' /FMS/ERM801/erm/config/erm_config.json | head -60
+1976:          "name" : "ermwebgui.query_engine.enabled",
+2000:          "name" : "ermwebgui.query_engine.evidence.datasource",
+2001:          "value" : "vertica",
+2006:            "vertica"
+2008:          "request" : "${script:nashorn:('${sys:vertica.enabled}'=='true' && '${sys:ermcamel.enabled}'=='true' && '${sys:ermwebgui.query_engine.enabled}'=='true'?'true':'false')}",
+2879:          "name" : "vertica",
+3056:          "name" : "vertica",
+3058:          "templateKey" : "vertica",
+3347:          "templateKey" : "vertica",
+[FMSuser@dchqfms-stg:~]$ grep -n -E 'queryBuilderDS|vertica|xa-datasource' /FMS/ERM801/erm/jboss/jboss-eap/cv_webclient/configuration/cv_webclient.xml | head -40
+80:        <property name="wfe.packages.basepath" value="/erm/verticals"/>
+251:                <datasource jndi-name="java:/queryBuilderDS" pool-name="queryBuilderDS_Pool" enabled="true" use-java-context="true">
+318:                    <connection-url>jdbc:vertica://10.230.182.190:5433/VFEG70_V?ConnectionLoadBalance=1;BackupServerNode=10.230.182.191:5433,10.230.182.192:5433,10.230.182.193:5433,10.230.182.194:5433,10.230.182.195:5433</connection-url>
+319:                    <driver>vertica92</driver>
+384:                <datasource jndi-name="java:/ermVDS" pool-name="ermVDS_Pool" enabled="${vertica.enabled}" use-java-context="true">
+385:                    <connection-url>${vertica.jdbc.url}</connection-url>
+386:                    <driver>vertica92</driver>
+391:                <datasource jndi-name="java:/ermVSFP" pool-name="sfp" enabled="${vertica.enabled}" use-java-context="true">
+392:                    <connection-url>${vertica.jdbc.url}</connection-url>
+393:                    <driver>vertica111</driver>
+647:                    <connection-url>jdbc:vertica://10.230.182.190:5433/VFEG70_V?ConnectionLoadBalance=1;BackupServerNode=10.230.182.191:5433,10.230.182.192:5433,10.230.182.193:5433,10.230.182.194:5433,10.230.182.195:5433</connection-url>
+648:                    <driver>vertica92</driver>
+663:                <xa-datasource jndi-name="java:/ERMServerDS" pool-name="ERMServerDS_Pool" enabled="true" use-java-context="true" use-ccm="true">
+664:                    <xa-datasource-property name="URL">
+666:                    </xa-datasource-property>
+667:                    <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+691:                </xa-datasource>
+692:                <xa-datasource jndi-name="java:/ERMRLCServerDS" pool-name="ERMRLCServerDS_Pool" enabled="true" use-java-context="true" use-ccm="true">
+693:                    <xa-datasource-property name="URL">
+695:                    </xa-datasource-property>
+696:                    <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+720:                </xa-datasource>
+721:                <xa-datasource jndi-name="java:/ERMKPIServerDS" pool-name="ERMKPIServerDS_Pool" enabled="true" use-java-context="true" use-ccm="true">
+722:                    <xa-datasource-property name="URL">
+724:                    </xa-datasource-property>
+725:                    <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+749:                </xa-datasource>
+753:                        <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+757:                        <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+761:                        <xa-datasource-class>oracle.jdbc.xa.client.OracleXADataSource</xa-datasource-class>
+763:                    <driver name="vertica7" module="com.vertica:7.1.2">
+764:                        <driver-class>com.vertica.jdbc.Driver</driver-class>
+766:                    <driver name="vertica8" module="com.vertica:8.1.1">
+767:                        <driver-class>com.vertica.jdbc.Driver</driver-class>
+769:                    <driver name="vertica9" module="com.vertica:9.0.0">
+770:                        <driver-class>com.vertica.jdbc.Driver</driver-class>
+772:                    <driver name="vertica91" module="com.vertica:9.1.0">
+773:                        <driver-class>com.vertica.jdbc.Driver</driver-class>
+775:                    <driver name="vertica92" module="com.vertica:9.2.0">
+776:                        <driver-class>com.vertica.jdbc.Driver</driver-class>
+[FMSuser@dchqfms-stg:~]$ grep -a 'qrybld.svc.item.notexist\|executeQueryById' /FMS/ERM801/erm/jboss/jboss-eap/cv_webclient/log/server.log | tail -20
+2026-10-13 14:40:30,203 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:40:34,535 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:40:48,190 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:40:54,812 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:40:59,594 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:04,485 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:17,920 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:29,433 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:33,795 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:47,624 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:54,995 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:41:59,659 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:04,193 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:17,380 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:29,855 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:33,981 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:47,608 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:55,351 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:42:59,803 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+2026-10-13 14:43:03,373 INFO  [org.apache.cxf.phase.PhaseInterceptorChain.doDefaultLogging(PhaseInterceptorChain.java:411)] [] [] [] [] Application {http://facade.querymanager.hp.com/}QueryManagerService#{http://facade.querymanager.hp.com/}executeQueryById has thrown exception, unwinding now: com.hp.coab.exceptions.BeanServiceException: qrybld.svc.item.notexist|The requested element does not exist anymore
+[FMSuser@dchqfms-stg:~]$
+
