@@ -1,0 +1,67 @@
+{
+  "responseCode": 0,
+  "vertices": [
+    {
+      "nodeName": "201111111111",
+      "nodeTypeId": 1,
+      "root": true,
+      "neighboursCount": 3,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "201222222222",
+      "nodeTypeId": 1,
+      "root": true,
+      "neighboursCount": 3,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "201333333333",
+      "nodeTypeId": 1,
+      "root": true,
+      "neighboursCount": 0,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "201999999999",
+      "nodeTypeId": 1,
+      "root": false,
+      "neighboursCount": 2,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    }
+  ],
+  "edges": [
+    {
+      "direction": 1,
+      "linkTypeID": 7,
+      "linkType": {"linkTypeId": 7, "linkTypeName": "VoiceCall", "alias": "VoiceCall"},
+      "edgeInfo": {"totalCount": 12, "label": "VoiceCall"},
+      "nodeA": {"nodeName": "201111111111", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "201222222222", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}}
+    },
+    {
+      "direction": 1,
+      "linkTypeID": 7,
+      "linkType": {"linkTypeId": 7, "linkTypeName": "VoiceCall", "alias": "VoiceCall"},
+      "edgeInfo": {"totalCount": 3, "label": "VoiceCall"},
+      "nodeA": {"nodeName": "201222222222", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "201111111111", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}}
+    },
+    {
+      "direction": 1,
+      "linkTypeID": 7,
+      "linkType": {"linkTypeId": 7, "linkTypeName": "VoiceCall", "alias": "VoiceCall"},
+      "edgeInfo": {"totalCount": 5, "label": "VoiceCall"},
+      "nodeA": {"nodeName": "201111111111", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "201999999999", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}}
+    },
+    {
+      "direction": 1,
+      "linkTypeID": 7,
+      "linkType": {"linkTypeId": 7, "linkTypeName": "VoiceCall", "alias": "VoiceCall"},
+      "edgeInfo": {"totalCount": 2, "label": "VoiceCall"},
+      "nodeA": {"nodeName": "201222222222", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "201999999999", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}}
+    }
+  ]
+}

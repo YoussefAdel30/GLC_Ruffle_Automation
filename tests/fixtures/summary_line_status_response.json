@@ -1,0 +1,64 @@
+{
+  "responseCode": 0,
+  "vertices": [
+    {
+      "nodeName": "201000000001",
+      "nodeTypeId": 1,
+      "root": true,
+      "highlight": true,
+      "neighboursCount": 1,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "201000000002",
+      "nodeTypeId": 1,
+      "root": true,
+      "highlight": true,
+      "neighboursCount": 1,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "201000000003",
+      "nodeTypeId": 1,
+      "root": true,
+      "highlight": true,
+      "neighboursCount": 1,
+      "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}
+    },
+    {
+      "nodeName": "Active",
+      "nodeTypeId": 1160,
+      "neighboursCount": 1,
+      "nodeType": {"nodeTypeId": 1160, "nodeTypeName": "Line Status"}
+    },
+    {
+      "nodeName": "Suspended_Fraud<br>2026-08-30 14:23:05",
+      "nodeTypeId": 1160,
+      "neighboursCount": 2,
+      "nodeType": {"nodeTypeId": 1160, "nodeTypeName": "Line Status"}
+    }
+  ],
+  "edges": [
+    {
+      "direction": 1,
+      "linkTypeID": 371,
+      "linkType": {"linkTypeId": 371, "linkTypeName": "MSISDN-Line Status", "alias": "Has"},
+      "nodeA": {"nodeName": "201000000001", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "Active", "nodeTypeId": 1160, "nodeType": {"nodeTypeId": 1160, "nodeTypeName": "Line Status"}}
+    },
+    {
+      "direction": 1,
+      "linkTypeID": 371,
+      "linkType": {"linkTypeId": 371, "linkTypeName": "MSISDN-Line Status", "alias": "Has"},
+      "nodeA": {"nodeName": "201000000002", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "Suspended_Fraud<br>2026-08-30 14:23:05", "nodeTypeId": 1160, "nodeType": {"nodeTypeId": 1160, "nodeTypeName": "Line Status"}}
+    },
+    {
+      "direction": 1,
+      "linkTypeID": 371,
+      "linkType": {"linkTypeId": 371, "linkTypeName": "MSISDN-Line Status", "alias": "Has"},
+      "nodeA": {"nodeName": "201000000003", "nodeTypeId": 1, "nodeType": {"nodeTypeId": 1, "nodeTypeName": "MSISDN"}},
+      "nodeB": {"nodeName": "Suspended_Fraud<br>2026-08-30 14:23:05", "nodeTypeId": 1160, "nodeType": {"nodeTypeId": 1160, "nodeTypeName": "Line Status"}}
+    }
+  ]
+}
