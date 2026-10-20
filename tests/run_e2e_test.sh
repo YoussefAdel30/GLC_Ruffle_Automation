@@ -111,6 +111,8 @@ if "201333333333" in excluded:
         errors.append("step 5 walk-back detail should mention extra 201444444444: %s" % (excluded["201333333333"],))
 if report != report_file:
     errors.append("stdout report differs from -o report file")
+if "FAILED BATCHES" in report:
+    errors.append("happy-path report should not list failed batches: %s" % report[-400:])
 if "----- REMAINING MSISDNs (2) -----" not in report:
     errors.append("report missing remaining header: %s" % report[:400])
 if "not in input" in report or "remaining_added_via_device" in report:
@@ -165,4 +167,121 @@ if errors:
 print("e2e_ok")
 print("clean=%s" % ",".join(clean))
 print("excluded=%s" % ",".join("%s:%s" % (k, v[0]) for k, v in sorted(excluded.items())))
+PY
+
+echo "=== e2e retry responseCode 103 then succeed ==="
+RETRY_DIR="$TMP/retry"
+mkdir -p "$RETRY_DIR"
+GLC_RETRY_SLEEP=0 \
+GLC_MOCK_FAIL_LINK=535 \
+GLC_MOCK_FAIL_CODE=103 \
+GLC_MOCK_FAIL_TIMES=2 \
+GLC_MOCK_FAIL_NODE=201033008757 \
+GLC_MOCK_FAIL_MSG="mock truncated" \
+GLC_MOCK_STATE="$RETRY_DIR/mock-state" \
+"$ROOT/glc_filter_clean_msisdns.sh" \
+  --glc-auto "$ROOT/tests/mock_glc_auto.sh" \
+  --request-types "$ROOT/request_types" \
+  --batch-size 3 \
+  --slow-batch-size 2 \
+  --retries 3 \
+  -i "$ROOT/tests/fixtures/input_msisdns.txt" \
+  -o "$RETRY_DIR/report.txt" \
+  -d "$RETRY_DIR/run" \
+  > "$RETRY_DIR/stdout.txt"
+
+python3 - "$RETRY_DIR/run/excluded.txt" "$RETRY_DIR/run/filter.log" "$RETRY_DIR/report.txt" <<'PY'
+import re
+import sys
+excluded_path, log_path, report_path = sys.argv[1:4]
+excluded = {}
+for ln in open(excluded_path):
+    ln = ln.strip()
+    if not ln or ln.startswith("msisdn|"):
+        continue
+    msisdn, step, reason, detail = ln.split("|", 3)
+    excluded[msisdn] = step
+log_text = open(log_path).read()
+report = open(report_path).read()
+errors = []
+if excluded.get("201033008757") != "2-wallet_profile":
+    errors.append("103 then success should still exclude wallet profile: %s" % excluded.get("201033008757"))
+attempts = re.findall(r"GLC call \[step2_wallet_profile/batch1\] attempt (\d+)/3", log_text)
+if attempts != ["1", "2", "3"]:
+    errors.append("expected 3 attempts for 103 retries, got %s" % attempts)
+if "responseCode=103" not in log_text:
+    errors.append("log should show responseCode=103 before retry")
+if "FAILED BATCHES" in report:
+    errors.append("successful retry should not list failed batches")
+if errors:
+    raise SystemExit("RETRY E2E FAILED:\n- " + "\n- ".join(errors))
+print("retry_103_then_success_ok")
+PY
+
+echo "=== e2e persistent responseCode 103 listed in final report ==="
+FAIL_DIR="$TMP/fail"
+mkdir -p "$FAIL_DIR"
+GLC_RETRY_SLEEP=0 \
+GLC_MOCK_FAIL_LINK=535 \
+GLC_MOCK_FAIL_CODE=103 \
+GLC_MOCK_FAIL_ALWAYS=1 \
+GLC_MOCK_FAIL_NODE=201033008757 \
+GLC_MOCK_FAIL_MSG="search truncated" \
+GLC_MOCK_STATE="$FAIL_DIR/mock-state" \
+"$ROOT/glc_filter_clean_msisdns.sh" \
+  --glc-auto "$ROOT/tests/mock_glc_auto.sh" \
+  --request-types "$ROOT/request_types" \
+  --batch-size 3 \
+  --slow-batch-size 2 \
+  --retries 3 \
+  -i "$ROOT/tests/fixtures/input_msisdns.txt" \
+  -o "$FAIL_DIR/report.txt" \
+  -d "$FAIL_DIR/run" \
+  > "$FAIL_DIR/stdout.txt"
+
+python3 - "$FAIL_DIR/run/clean_msisdns.txt" "$FAIL_DIR/run/excluded.txt" "$FAIL_DIR/report.txt" "$FAIL_DIR/run/failed_batches.jsonl" "$FAIL_DIR/run/filter.log" <<'PY'
+import json
+import sys
+clean_path, excluded_path, report_path, failed_path, log_path = sys.argv[1:6]
+clean = [ln.strip() for ln in open(clean_path) if ln.strip()]
+excluded = {}
+for ln in open(excluded_path):
+    ln = ln.strip()
+    if not ln or ln.startswith("msisdn|"):
+        continue
+    msisdn, step, reason, detail = ln.split("|", 3)
+    excluded[msisdn] = step
+report = open(report_path).read()
+failed = [json.loads(ln) for ln in open(failed_path) if ln.strip()]
+log_text = open(log_path).read()
+errors = []
+if "201033008757" in excluded:
+    errors.append("failed wallet-profile batch must not exclude 201033008757: %s" % excluded["201033008757"])
+if "201033008757" not in clean:
+    errors.append("201033008757 should remain after failed wallet-profile batch: %s" % clean)
+if "FAILED BATCHES AFTER 3 RETRIES (1)" not in report:
+    errors.append("report missing failed-batches header: %s" % report[-800:])
+if "These batches failed after 3 retries" not in report:
+    errors.append("report should say batches failed after 3 retries")
+if "step2_wallet_profile" not in report:
+    errors.append("report should name the failed step")
+if "code:    103" not in report:
+    errors.append("report should show responseCode 103")
+if "search truncated" not in report:
+    errors.append("report should include warningMsg")
+if len(failed) != 1:
+    errors.append("expected 1 failed batch record, got %s" % failed)
+else:
+    row = failed[0]
+    if row.get("step") != "step2_wallet_profile" or row.get("batch") != 1:
+        errors.append("failed batch identity mismatch: %s" % row)
+    if row.get("responseCode") != 103:
+        errors.append("failed batch code mismatch: %s" % row)
+    if "201033008757" not in (row.get("nodes") or []):
+        errors.append("failed batch nodes missing 201033008757: %s" % row)
+if "failed after 3 retries: step2_wallet_profile/batch1" not in log_text:
+    errors.append("log missing exhausted-retry error for batch1")
+if errors:
+    raise SystemExit("FAIL-103 E2E FAILED:\n- " + "\n- ".join(errors))
+print("persistent_103_report_ok")
 PY

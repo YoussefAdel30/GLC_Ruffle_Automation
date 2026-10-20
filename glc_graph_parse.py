@@ -126,6 +126,14 @@ def summary(data):
     }
 
 
+def glc_response_ok(data):
+    """True when searchByNodes completed successfully (responseCode 0/absent)."""
+    if not isinstance(data, dict):
+        return False
+    code = data.get("responseCode")
+    return code in (0, "0", None)
+
+
 def nodes_of_type(data, type_id):
     names = []
     for vertex in vertices(data):
@@ -500,7 +508,20 @@ def _load_exclusions(path):
     return rows
 
 
-def build_report(input_msisdns, remaining, exclusions):
+def _load_failed_batches(path):
+    rows = []
+    if not path or not os.path.exists(path):
+        return rows
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def build_report(input_msisdns, remaining, exclusions, failed_batches=None, retries=3):
     remaining = unique_preserve(remaining)
     remaining_set = set(remaining)
     orig = unique_preserve(input_msisdns)
@@ -523,9 +544,17 @@ def build_report(input_msisdns, remaining, exclusions):
     lines.append("=" * 64)
     lines.append("GLC MSISDN FILTER REPORT")
     lines.append("=" * 64)
+    failed_batches = failed_batches or []
+    try:
+        retries = int(retries)
+    except (TypeError, ValueError):
+        retries = 3
+
     lines.append("input_msisdns=%s" % len(orig))
     lines.append("remaining=%s" % len(remaining))
     lines.append("excluded_from_input=%s" % len(excluded_input))
+    if failed_batches:
+        lines.append("failed_batches=%s" % len(failed_batches))
     if remaining_added:
         lines.append("remaining_added_via_device=%s" % len(remaining_added))
     if excluded_extra:
@@ -580,8 +609,39 @@ def build_report(input_msisdns, remaining, exclusions):
         lines.extend(missing)
         lines.append("")
 
+    if failed_batches:
+        lines.append(
+            "----- FAILED BATCHES AFTER %s RETRIES (%s) -----"
+            % (retries, len(failed_batches))
+        )
+        lines.append(
+            "These batches failed after %s retries. Their nodes were not used for exclusions."
+            % retries
+        )
+        lines.append("")
+        for row in failed_batches:
+            nodes = row.get("nodes") or []
+            if isinstance(nodes, list):
+                node_text = ",".join(str(n) for n in nodes) if nodes else "(none)"
+            else:
+                node_text = str(nodes)
+            lines.append("step:    %s" % row.get("step", ""))
+            lines.append("batch:   %s" % row.get("batch", ""))
+            lines.append("code:    %s" % row.get("responseCode", ""))
+            lines.append("warning: %s" % (row.get("warningMsg") or ""))
+            lines.append("nodes:   %s" % node_text)
+            lines.append("")
+
     lines.append("=" * 64)
     return "\n".join(lines).rstrip() + "\n"
+
+
+def cmd_response_ok(args):
+    try:
+        data = _load_json(args.response)
+    except Exception:
+        sys.exit(2)
+    sys.exit(0 if glc_response_ok(data) else 1)
 
 
 def cmd_write_report(args):
@@ -589,6 +649,8 @@ def cmd_write_report(args):
         _read_lines(args.input_file),
         _read_lines(args.remaining_file),
         _load_exclusions(args.excluded_file),
+        _load_failed_batches(getattr(args, "failed_file", None)),
+        getattr(args, "retries", 3),
     )
     if args.out and args.out != "-":
         with open(args.out, "w") as fh:
@@ -875,6 +937,36 @@ def cmd_selftest(_args):
     assert "201066257228" in report
     assert "has_user" in report
     assert "ADELY1" in report
+    assert "FAILED BATCHES" not in report
+
+    failed_report = build_report(
+        ["201066257228", "201666666666"],
+        ["201066257228", "201666666666"],
+        [],
+        [
+            {
+                "step": "step2_wallet_profile",
+                "batch": 1,
+                "attempts": 3,
+                "responseCode": 103,
+                "warningMsg": "search truncated",
+                "nodes": ["201066257228"],
+            }
+        ],
+        3,
+    )
+    assert "failed_batches=1" in failed_report
+    assert "FAILED BATCHES AFTER 3 RETRIES (1)" in failed_report
+    assert "These batches failed after 3 retries" in failed_report
+    assert "step2_wallet_profile" in failed_report
+    assert "code:    103" in failed_report
+    assert "201066257228" in failed_report
+
+    ok_graph = _sample_msisdn_user()
+    assert glc_response_ok(ok_graph)
+    assert glc_response_ok({"responseCode": 0, "vertices": []})
+    assert not glc_response_ok({"responseCode": 103, "vertices": [], "warningMsg": "x"})
+    assert not glc_response_ok("not-a-dict")
 
     print("selftest_ok")
 
@@ -954,10 +1046,16 @@ def build_parser():
     p.add_argument("--out", default="-")
     p.set_defaults(func=cmd_unique)
 
+    p = sub.add_parser("response-ok")
+    p.add_argument("--response", required=True)
+    p.set_defaults(func=cmd_response_ok)
+
     p = sub.add_parser("write-report")
     p.add_argument("--input-file", required=True)
     p.add_argument("--remaining-file", required=True)
     p.add_argument("--excluded-file", required=True)
+    p.add_argument("--failed-file")
+    p.add_argument("--retries", type=int, default=3)
     p.add_argument("--out", default="-")
     p.set_defaults(func=cmd_write_report)
 

@@ -4,6 +4,7 @@
 set -euo pipefail
 python3 - "$1" <<'PY'
 import json
+import os
 import sys
 
 TYPE_NAMES = {
@@ -148,10 +149,57 @@ def graph(inputs, pairs, from_type, to_type, link_id, input_are_from=True):
     }
 
 
+def maybe_fail(link, values):
+    fail_link = os.environ.get("GLC_MOCK_FAIL_LINK")
+    if not fail_link or str(link) != str(fail_link):
+        return None
+    fail_node = os.environ.get("GLC_MOCK_FAIL_NODE")
+    if fail_node and fail_node not in values:
+        return None
+    try:
+        code = int(os.environ.get("GLC_MOCK_FAIL_CODE") or "103")
+    except ValueError:
+        code = 103
+    always = os.environ.get("GLC_MOCK_FAIL_ALWAYS") == "1"
+    try:
+        times = int(os.environ.get("GLC_MOCK_FAIL_TIMES") or "0")
+    except ValueError:
+        times = 0
+    state_dir = os.environ.get("GLC_MOCK_STATE") or "/tmp"
+    try:
+        os.makedirs(state_dir)
+    except OSError:
+        pass
+    path = os.path.join(state_dir, "fail_count_%s" % link)
+    n = 0
+    if os.path.exists(path):
+        try:
+            n = int(open(path).read().strip() or "0")
+        except ValueError:
+            n = 0
+    n += 1
+    with open(path, "w") as fh:
+        fh.write("%s\n" % n)
+    if always or n <= times:
+        return {
+            "vertices": [],
+            "edges": [],
+            "rootNodes": [],
+            "responseCode": code,
+            "warningMsg": os.environ.get("GLC_MOCK_FAIL_MSG") or "mock responseCode %s" % code,
+        }
+    return None
+
+
 req = json.load(open(sys.argv[1]))
 link = int(req.get("linkTypeCat"))
 disp = str(req.get("dispTypes") or "")
 node_type, values = node_values(req)
+failed = maybe_fail(link, values)
+if failed is not None:
+    json.dump(failed, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(0)
 
 if link == 13:
     out = graph(values, build_pairs(values, USERS), 1, 1001, 13)

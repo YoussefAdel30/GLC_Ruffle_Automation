@@ -34,6 +34,8 @@
 #
 # Logs every GLC call, mapping, exclusion reason, and remaining count.
 # Raw responses are stored under the run directory for debugging.
+# Non-zero GLC responseCode (including 103) is retried. Batches that still
+# fail after the retry limit are listed in the final report.
 #
 
 set -euo pipefail
@@ -67,7 +69,8 @@ LINE_STATUS_EXCLUDE=""
 LINE_STATUS_EXCLUDE_SET=0
 LINE_STATUS_EXCLUDE_FILE="${SCRIPT_DIR}/exclude_lists/line_status_reasons.txt"
 GLC_RETRIES=3
-GLC_RETRY_SLEEP=2
+GLC_RETRY_SLEEP="${GLC_RETRY_SLEEP:-2}"
+FAILED_FILE=""
 
 usage() {
   cat <<EOF
@@ -101,7 +104,8 @@ Options:
       --line-status-exclude-file FILE
                                File of suspension reasons, one per line
                                (default: exclude_lists/line_status_reasons.txt)
-      --retries N              GLC call retries on invalid JSON (default: ${GLC_RETRIES})
+      --retries N              GLC call retries on invalid JSON or non-zero
+                               responseCode such as 103 (default: ${GLC_RETRIES})
   -h, --help                   Show this help
 
 Examples:
@@ -274,6 +278,47 @@ PY
   [[ -n "$DATE_TO" ]] || DATE_TO="$cto"
 }
 
+record_failed_batch() {
+  local step="$1"
+  local batch="$2"
+  local attempts="$3"
+  local resp="$4"
+  local nodes_file="$5"
+  [[ -n "$FAILED_FILE" ]] || return 0
+  python3 - "$FAILED_FILE" "$step" "$batch" "$attempts" "$resp" "$nodes_file" <<'PY'
+import json
+import os
+import sys
+
+out_path, step, batch, attempts, resp, nodes_file = sys.argv[1:7]
+code = None
+warn = ""
+try:
+    data = json.load(open(resp))
+    code = data.get("responseCode")
+    warn = data.get("warningMsg") or ""
+except Exception:
+    warn = "invalid JSON or empty response"
+nodes = []
+if nodes_file and os.path.exists(nodes_file):
+    with open(nodes_file) as fh:
+        for line in fh:
+            item = line.strip()
+            if item:
+                nodes.append(item)
+row = {
+    "step": step,
+    "batch": int(batch) if str(batch).isdigit() else batch,
+    "attempts": int(attempts),
+    "responseCode": code,
+    "warningMsg": warn,
+    "nodes": nodes,
+}
+with open(out_path, "a") as fh:
+    fh.write(json.dumps(row) + "\n")
+PY
+}
+
 call_glc() {
   local request_file="$1"
   local response_file="$2"
@@ -292,22 +337,33 @@ call_glc() {
     fi
     if [[ "$rc" -ne 0 ]]; then
       log_warn "glc_auto exited ${rc} for ${label}"
-    elif python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$response_file" 2>/dev/null; then
-      local summary
-      summary="$(python_parse summary --response "$response_file")"
-      log_info "GLC response [${label}] ${summary}"
-      return 0
     else
-      local preview
-      preview="$(head -c 240 "$response_file" 2>/dev/null | tr '\n' ' ')"
-      log_warn "GLC response [${label}] is not valid JSON. preview=${preview}"
+      set +e
+      python_parse response-ok --response "$response_file"
+      local st=$?
+      set -e
+      if [[ "$st" -eq 0 ]]; then
+        local summary
+        summary="$(python_parse summary --response "$response_file")"
+        log_info "GLC response [${label}] ${summary}"
+        return 0
+      elif [[ "$st" -eq 2 ]]; then
+        local preview
+        preview="$(head -c 240 "$response_file" 2>/dev/null | tr '\n' ' ')"
+        log_warn "GLC response [${label}] is not valid JSON. preview=${preview}"
+      else
+        local summary
+        summary="$(python_parse summary --response "$response_file" 2>/dev/null || true)"
+        log_warn "GLC response [${label}] not OK (will retry). ${summary}"
+      fi
     fi
     attempt=$((attempt + 1))
     if [[ "$attempt" -le "$GLC_RETRIES" ]]; then
       sleep "$GLC_RETRY_SLEEP"
     fi
   done
-  fail "GLC call failed after ${GLC_RETRIES} attempts: ${label}"
+  log_error "GLC call failed after ${GLC_RETRIES} retries: ${label}"
+  return 1
 }
 
 split_batches() {
@@ -389,9 +445,19 @@ run_batched_glc() {
     local resp="${RESP_DIR}/${step_tag}_batch$(printf '%03d' "$i").response.json"
     build_request_file "$template" "$f" "$req"
     log_debug "${step_tag} batch ${i} size=$(count_lines "$f") request=${req}"
-    call_glc "$req" "$resp" "${step_tag}/batch${i}"
-    responses+=("$resp")
+    if call_glc "$req" "$resp" "${step_tag}/batch${i}"; then
+      responses+=("$resp")
+    else
+      record_failed_batch "$step_tag" "$i" "$GLC_RETRIES" "$resp" "$f"
+      log_error "Batch ${i} of ${step_tag} failed after ${GLC_RETRIES} retries; continuing without this batch"
+    fi
   done
+
+  if [[ "${#responses[@]}" -eq 0 ]]; then
+    log_warn "All batches failed for ${step_tag}; treating as empty response"
+    echo '{"vertices":[],"edges":[],"responseCode":0}' > "$combined_response"
+    return 0
+  fi
 
   python3 - "$combined_response" "${responses[@]}" <<'PY'
 import json, sys
@@ -507,10 +573,12 @@ main() {
 
   LOG_FILE="${RUN_DIR}/filter.log"
   EXCLUDED_FILE="${RUN_DIR}/excluded.txt"
+  FAILED_FILE="${RUN_DIR}/failed_batches.jsonl"
   REMAINING="${RUN_DIR}/remaining.txt"
   CURRENT="${RUN_DIR}/current_msisdns.txt"
   CLEAN_FILE="${RUN_DIR}/clean_msisdns.txt"
   : > "$EXCLUDED_FILE"
+  : > "$FAILED_FILE"
   echo "msisdn|step|reason|detail" > "$EXCLUDED_FILE"
 
   log_info "=============================================================="
@@ -874,18 +942,23 @@ main() {
     --input-file "${RUN_DIR}/input_msisdns.txt" \
     --remaining-file "$CLEAN_FILE" \
     --excluded-file "$EXCLUDED_FILE" \
+    --failed-file "$FAILED_FILE" \
+    --retries "$GLC_RETRIES" \
     --out "$REPORT_FILE"
 
   local clean_count
   clean_count="$(count_lines "$CLEAN_FILE")"
   local excluded_count
   excluded_count="$(tail -n +2 "$EXCLUDED_FILE" | wc -l | tr -d ' ')"
+  local failed_count
+  failed_count="$(count_lines "$FAILED_FILE")"
 
   log_info "=============================================================="
-  log_info "DONE  remaining=${clean_count}  excluded=${excluded_count}"
+  log_info "DONE  remaining=${clean_count}  excluded=${excluded_count}  failed_batches=${failed_count}"
   log_info "report: ${REPORT_FILE}"
   log_info "remaining file: ${CLEAN_FILE}"
   log_info "excluded file: ${EXCLUDED_FILE}"
+  log_info "failed batches file: ${FAILED_FILE}"
   log_info "log file: ${LOG_FILE}"
   log_info "remaining MSISDNs: $(preview_list "$CLEAN_FILE")"
   log_info "=============================================================="
