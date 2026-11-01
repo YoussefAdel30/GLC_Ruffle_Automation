@@ -2,8 +2,8 @@
   "graphDepth": 1,
   "dateFrom": "2026/08/01 00:00:00",
   "dateTo": "2026/08/31 23:59:59",
-  "linkTypeCat": 82,
-  "dispTypes": "1",
+  "linkTypeCat": 103,
+  "dispTypes": "1,1001",
   "nodes": [{
     "id": "1",
     "nodeType": "1",

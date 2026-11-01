@@ -1,0 +1,92 @@
+{
+  "responseCode": 0,
+  "vertices": [
+    {
+      "attributes": null,
+      "label": "ADELY1",
+      "nodeId": "1001_ADELY1",
+      "nodeName": "ADELY1",
+      "neighboursCount": 1,
+      "nodeTypeId": 1001,
+      "nodeType": {
+        "nodeTypeId": 1001,
+        "nodeTypeName": "User",
+        "nodeTypeIcon": "employee-svgrepo-com.svg",
+        "erm": true,
+        "id": 1001
+      },
+      "id": "1001_ADELY1"
+    },
+    {
+      "attributes": null,
+      "label": "201066257228",
+      "nodeId": "1_201066257228",
+      "nodeName": "201066257228",
+      "neighboursCount": 1,
+      "nodeTypeId": 1,
+      "nodeType": {
+        "nodeTypeId": 1,
+        "nodeTypeName": "MSISDN",
+        "nodeTypeIcon": "phone",
+        "erm": true,
+        "id": 1
+      },
+      "highlight": true,
+      "root": true,
+      "id": "1_201066257228"
+    }
+  ],
+  "edges": [
+    {
+      "direction": 1,
+      "linkID": "13_1001_ADELY1_1_201066257228",
+      "edgeInfo": {
+        "totalCount": 1,
+        "label": "Owns"
+      },
+      "linkTypeID": 13,
+      "linkType": {
+        "linkTypeId": 13,
+        "linkTypeName": "MSISDN-User",
+        "nodeTypeFrom": 1001,
+        "nodeTypeTo": 1,
+        "alias": "Owns",
+        "id": 13
+      },
+      "nodeA_ID": "1001_ADELY1",
+      "nodeB_ID": "1_201066257228",
+      "nodeA": {
+        "label": "ADELY1",
+        "nodeId": "1001_ADELY1",
+        "nodeName": "ADELY1",
+        "nodeTypeId": 1001,
+        "nodeType": {
+          "nodeTypeId": 1001,
+          "nodeTypeName": "User",
+          "id": 1001
+        }
+      },
+      "nodeB": {
+        "label": "201066257228",
+        "nodeId": "1_201066257228",
+        "nodeName": "201066257228",
+        "nodeTypeId": 1,
+        "nodeType": {
+          "nodeTypeId": 1,
+          "nodeTypeName": "MSISDN",
+          "id": 1
+        }
+      },
+      "id": "13_1001_ADELY1_1_201066257228",
+      "linkKey": "13::1001_ADELY1::1_201066257228"
+    }
+  ],
+  "rootNodes": [
+    {
+      "label": "201066257228",
+      "nodeId": "1_201066257228",
+      "nodeName": "201066257228",
+      "nodeTypeId": 1
+    }
+  ]
+}
