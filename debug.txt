@@ -1,0 +1,15 @@
+================================================================
+GLC MSISDN FILTER REPORT
+================================================================
+input_msisdns=1
+remaining=0
+excluded_from_input=1
+
+----- REMAINING MSISDNs (0) -----
+(none)
+
+----- EXCLUDED INPUT MSISDNs (1) -----
+201066257228
+  step:   1-msisdn_user
+  reason: has_user
+  detail: ADELY1
