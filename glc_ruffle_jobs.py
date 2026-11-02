@@ -137,23 +137,91 @@ def _read_lines(path):
     return out
 
 
+def parse_filter_report(text):
+    """Pull remaining numbers and exclusions out of the text filter report."""
+    remaining = []
+    exclusions = []
+    section = None
+    current = None
+    for raw in str(text or "").splitlines():
+        line = raw.rstrip("\n")
+        if line.startswith("----- REMAINING"):
+            section = "remaining"
+            current = None
+            continue
+        if line.startswith("----- EXCLUDED INPUT"):
+            section = "excluded"
+            current = None
+            continue
+        if line.startswith("-----"):
+            section = None
+            current = None
+            continue
+        if not section:
+            continue
+        stripped = line.strip()
+        if section == "remaining":
+            if stripped and stripped != "(none)":
+                remaining.append(stripped)
+            continue
+        if section == "excluded":
+            if line.startswith("  step:"):
+                if current is not None:
+                    current["step"] = line.split(":", 1)[1].strip()
+            elif line.startswith("  reason:"):
+                if current is not None:
+                    current["reason"] = line.split(":", 1)[1].strip()
+            elif line.startswith("  detail:"):
+                if current is not None:
+                    current["detail"] = line.split(":", 1)[1].strip()
+            elif stripped and stripped != "(none)":
+                current = {
+                    "msisdn": stripped,
+                    "step": "",
+                    "reason": "",
+                    "detail": "",
+                }
+                exclusions.append(current)
+    return remaining, exclusions
+
+
+def parse_filter_report_file(path):
+    if not path or not os.path.exists(path):
+        return [], []
+    with open(path) as fh:
+        return parse_filter_report(fh.read())
+
+
 def write_attachment(input_msisdns, remaining, exclusions, out_path):
     remaining_set = set(remaining)
     excl_by = {}
     for row in exclusions:
-        excl_by.setdefault(row["msisdn"], row)
+        msisdn = row.get("msisdn")
+        if msisdn and msisdn not in excl_by:
+            excl_by[msisdn] = row
+    ordered = list(input_msisdns)
+    seen = set(ordered)
+    for msisdn in remaining:
+        if msisdn not in seen:
+            ordered.append(msisdn)
+            seen.add(msisdn)
+    for msisdn in excl_by:
+        if msisdn not in seen:
+            ordered.append(msisdn)
+            seen.add(msisdn)
     with open(out_path, "w") as fh:
         writer = csv.writer(fh, lineterminator="\n")
         writer.writerow(
             ["Input MSISDNs", "Filtered Msisdns", "Excluded Msisdns", "Reason of exclusion"]
         )
-        for msisdn in input_msisdns:
+        for msisdn in ordered:
             if msisdn in remaining_set:
                 writer.writerow([msisdn, msisdn, "", ""])
             elif msisdn in excl_by:
                 writer.writerow([msisdn, "", msisdn, format_reason(excl_by[msisdn])])
             else:
                 writer.writerow([msisdn, "", msisdn, "not processed"])
+    return len(ordered)
 
 
 def cmd_parse(args):
@@ -184,12 +252,27 @@ def cmd_map(args):
 
 
 def cmd_attachment(args):
-    write_attachment(
-        _read_lines(args.input_file),
-        _read_lines(args.remaining_file),
-        load_exclusions(args.excluded_file),
-        args.out,
+    inputs = _read_lines(args.input_file)
+    remaining = _read_lines(getattr(args, "remaining_file", None))
+    exclusions = load_exclusions(getattr(args, "excluded_file", None))
+    report_remaining, report_exclusions = parse_filter_report_file(
+        getattr(args, "report_file", None)
     )
+    if not remaining:
+        remaining = report_remaining
+    if not exclusions:
+        exclusions = report_exclusions
+    if not inputs:
+        inputs = []
+        for msisdn in remaining:
+            if msisdn not in inputs:
+                inputs.append(msisdn)
+        for row in exclusions:
+            msisdn = row.get("msisdn")
+            if msisdn and msisdn not in inputs:
+                inputs.append(msisdn)
+    rows = write_attachment(inputs, remaining, exclusions, args.out)
+    print("attachment_rows=%s remaining=%s excluded=%s" % (rows, len(remaining), len(exclusions)))
 
 
 def cmd_label(args):
@@ -240,6 +323,56 @@ def cmd_selftest(args):
     assert "Input MSISDNs,Filtered Msisdns,Excluded Msisdns,Reason of exclusion" in text
     assert "201111111111,,201111111111,1-msisdn_user / has_user / ADELY1" in text
     assert "201222222222,201222222222,," in text
+
+    empty_in = os.path.join(tmp, "empty_in.txt")
+    open(empty_in, "w").close()
+    report_path = os.path.join(tmp, "report.txt")
+    with open(report_path, "w") as fh:
+        fh.write(
+            "\n".join(
+                [
+                    "input_msisdns=1",
+                    "remaining=0",
+                    "excluded_from_input=1",
+                    "",
+                    "----- REMAINING MSISDNs (0) -----",
+                    "(none)",
+                    "",
+                    "----- EXCLUDED INPUT MSISDNs (1) -----",
+                    "201066257228",
+                    "  step:   1-msisdn_user",
+                    "  reason: has_user",
+                    "  detail: ADELY1",
+                    "",
+                ]
+            )
+            + "\n"
+        )
+    remaining, exclusions = parse_filter_report(open(report_path).read())
+    assert remaining == []
+    assert exclusions[0]["msisdn"] == "201066257228"
+    assert exclusions[0]["reason"] == "has_user"
+    all_excl = os.path.join(tmp, "all_excl.csv")
+    write_attachment(
+        ["201066257228"],
+        [],
+        exclusions,
+        all_excl,
+    )
+    all_text = open(all_excl).read()
+    assert "201066257228,,201066257228,1-msisdn_user / has_user / ADELY1" in all_text
+    fallback = os.path.join(tmp, "fallback.csv")
+    cmd_attachment(
+        argparse.Namespace(
+            input_file=empty_in,
+            remaining_file=os.path.join(tmp, "missing_remaining.txt"),
+            excluded_file=os.path.join(tmp, "missing_excluded.txt"),
+            report_file=report_path,
+            out=fallback,
+        )
+    )
+    fb = open(fallback).read()
+    assert "201066257228,,201066257228,1-msisdn_user / has_user / ADELY1" in fb
     print("selftest_ok")
 
 
@@ -262,8 +395,9 @@ def build_parser():
 
     p = sub.add_parser("attachment")
     p.add_argument("--input-file", required=True)
-    p.add_argument("--remaining-file", required=True)
-    p.add_argument("--excluded-file", required=True)
+    p.add_argument("--remaining-file")
+    p.add_argument("--excluded-file")
+    p.add_argument("--report-file")
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_attachment)
 

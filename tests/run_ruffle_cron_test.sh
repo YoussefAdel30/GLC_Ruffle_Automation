@@ -197,6 +197,39 @@ if "201666666666" not in by or by["201666666666"][1] != "201666666666":
 print("attachment_ok")
 PY
 
+echo "=== remaining=0 still fills attachment rows ==="
+rm -f "$TMP/mail.args" "$TMP/mail.body"
+cat > "$REPO/ruffle.csv" <<'EOF'
+201066257228,AmrY1
+,
+,
+EOF
+run_cron
+attach0="$(python3 - "$TMP/mail.args" <<'PY'
+import sys
+args = open(sys.argv[1]).read().splitlines()
+for i, a in enumerate(args):
+    if a == "-a" and i + 1 < len(args):
+        print(args[i + 1])
+        break
+else:
+    raise SystemExit("no -a path")
+PY
+)"
+python3 - "$attach0" <<'PY'
+import csv
+import sys
+rows = list(csv.reader(open(sys.argv[1])))
+if len(rows) < 2:
+    raise SystemExit("header-only attachment for remaining=0: %s" % rows)
+by = {r[0]: r for r in rows[1:]}
+if "201066257228" not in by or by["201066257228"][2] != "201066257228":
+    raise SystemExit("excluded msisdn missing from remaining=0 attachment: %s" % rows)
+if "has_user" not in by["201066257228"][3]:
+    raise SystemExit("reason missing from remaining=0 attachment: %s" % by["201066257228"])
+print("remaining0_attachment_ok")
+PY
+
 echo "=== two user ids in column 2 go to both emails ==="
 cat > "$REPO/ruffle.csv" <<'EOF'
 201777777777,AmrY1

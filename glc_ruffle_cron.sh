@@ -179,15 +179,30 @@ process_csv() {
       --out "$attach"
   else
     log_info "Running filter on ${n_in} MSISDN(s) from ${base}"
+    mkdir -p "$filter_dir"
     "$FILTER_SCRIPT" \
       -i "$msisdns_file" \
       -o "${job_dir}/filter_report.txt" \
       -d "$filter_dir" \
       > "${job_dir}/filter_stdout.txt"
+    log_info "Filter run_dir listing: $(ls -1 "$filter_dir" 2>/dev/null | tr '\n' ' ')"
     python3 "$JOBS_PY" attachment \
-      --input-file "${filter_dir}/input_msisdns.txt" \
+      --input-file "$msisdns_file" \
       --remaining-file "${filter_dir}/clean_msisdns.txt" \
       --excluded-file "${filter_dir}/excluded.txt" \
+      --report-file "${job_dir}/filter_report.txt" \
+      --out "$attach"
+  fi
+  local attach_rows
+  attach_rows="$(python3 -c "import csv,sys; print(max(0,len(list(csv.reader(open(sys.argv[1]))))-1))" "$attach")"
+  log_info "Attachment ${attach} data_rows=${attach_rows}"
+  if [[ "$n_in" -gt 0 && "$attach_rows" -eq 0 ]]; then
+    log_error "Attachment is header-only; rebuilding from filter report"
+    python3 "$JOBS_PY" attachment \
+      --input-file "$msisdns_file" \
+      --remaining-file "${filter_dir}/clean_msisdns.txt" \
+      --excluded-file "${filter_dir}/excluded.txt" \
+      --report-file "${job_dir}/filter_report.txt" \
       --out "$attach"
   fi
 
