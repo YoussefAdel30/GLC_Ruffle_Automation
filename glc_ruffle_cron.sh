@@ -20,7 +20,7 @@
 #
 # Override any path with env vars (used by tests):
 #   RUFFLE_HOME REPO_DIR ARCHIVE_DIR LOG_DIR LOCK_FILE MAPPER_FILE
-#   FILTER_SCRIPT MAILX SMTP_SERVER MAIL_FROM FMS_TEAM
+#   FILTER_SCRIPT MAILX SMTP_SERVER MAIL_FROM FMS_TEAM FMS_CC
 #
 
 set -euo pipefail
@@ -40,6 +40,7 @@ LOCK_FILE="${LOCK_FILE:-${RUFFLE_HOME}/ruffle.lock}"
 SMTP_SERVER="${SMTP_SERVER:-10.230.30.32:25}"
 MAIL_FROM="${MAIL_FROM:-Anti-Fraud_Notifications_Center@vodafone.com}"
 FMS_TEAM="${FMS_TEAM:-yasmin.wanas@vodafone.com.eg,mohamed.abdelrehim@vodafone.com.eg,omar.salah@vodafone.com.eg,Mai.Sheta@vodafone.com.eg,youssef.adel@vodafone.com.eg}"
+FMS_CC="${FMS_CC:-Youssef.amr1@vodafone.com.eg,abdallah.ibrahim@vodafone.com.eg,bassant.mahmoud2@vodafone.com.eg,bassant.saad@vodafone.com}"
 MAILX="${MAILX:-mailx}"
 
 RUN_TS="$(date '+%Y%m%d_%H%M%S')"
@@ -123,6 +124,7 @@ send_mail() {
     -s "$subject"
     -r "$MAIL_FROM"
     -S "smtp=$SMTP_SERVER"
+    -c "$FMS_CC"
     -b "$FMS_TEAM"
     -a "$attach"
   )
@@ -240,7 +242,7 @@ Excluded MSISDNs: ${excl_n}
 Regards,
 FMS Team"
 
-  log_info "Sending mail subject=${mail_subject} TO=${emails:-none} BCC=${FMS_TEAM} attach=${result_name}"
+  log_info "Sending mail subject=${mail_subject} TO=${emails:-none} CC=${FMS_CC} BCC=${FMS_TEAM} attach=${result_name}"
   send_mail "$emails" "$result_copy" "$body" "$mail_subject"
   log_info "Mail sent for ${base}"
 

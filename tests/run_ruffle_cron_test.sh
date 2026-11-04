@@ -159,6 +159,8 @@ echo "$args" | grep -F -q -- "FMS Raffle Results || Ramadan2026 ||" || { echo "s
 echo "$args" | grep -q -- "-r Anti-Fraud_Notifications_Center@vodafone.com" || { echo "from missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "smtp=10.230.30.32:25" || { echo "smtp missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "yasmin.wanas@vodafone.com.eg,mohamed.abdelrehim@vodafone.com.eg" || { echo "bcc missing: $args" >&2; exit 1; }
+echo "$args" | grep -q -- "-c " || { echo "cc flag missing: $args" >&2; exit 1; }
+echo "$args" | grep -q -- "Youssef.amr1@vodafone.com.eg,abdallah.ibrahim@vodafone.com.eg,bassant.mahmoud2@vodafone.com.eg,bassant.saad@vodafone.com" || { echo "cc list missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "Youssef.amr1@vodafone.com.eg" || { echo "to email missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "-a " || { echo "attachment flag missing: $args" >&2; exit 1; }
 if ! grep -q "User ID: AmrY1" "$TMP/mail.body"; then
