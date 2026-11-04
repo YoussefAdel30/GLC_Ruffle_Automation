@@ -118,8 +118,8 @@ fi
 
 echo "=== process drop CSV, email, archive ==="
 cat > "$REPO/ruffle.csv" <<'EOF'
-201066257228,AmrY1
-201666666666,AmrY1
+201066257228,AmrY1,Ramadan2026
+201666666666,AmrY1,IgnoredLaterName
 ,
 ,
 EOF
@@ -155,7 +155,7 @@ if [[ ! -s "$TMP/mail.args" ]]; then
   exit 1
 fi
 args="$(tr '\n' ' ' < "$TMP/mail.args")"
-echo "$args" | grep -q -- "-s FMS Automated Notification" || { echo "subject missing: $args" >&2; exit 1; }
+echo "$args" | grep -F -q -- "FMS Raffle Results || Ramadan2026 ||" || { echo "subject missing raffle name: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "-r Anti-Fraud_Notifications_Center@vodafone.com" || { echo "from missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "smtp=10.230.30.32:25" || { echo "smtp missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "yasmin.wanas@vodafone.com.eg,mohamed.abdelrehim@vodafone.com.eg" || { echo "bcc missing: $args" >&2; exit 1; }
@@ -163,6 +163,10 @@ echo "$args" | grep -q -- "Youssef.amr1@vodafone.com.eg" || { echo "to email mis
 echo "$args" | grep -q -- "-a " || { echo "attachment flag missing: $args" >&2; exit 1; }
 if ! grep -q "User ID: AmrY1" "$TMP/mail.body"; then
   echo "mail body missing user id: $(cat "$TMP/mail.body")" >&2
+  exit 1
+fi
+if ! grep -q "Raffle: Ramadan2026" "$TMP/mail.body"; then
+  echo "mail body missing raffle name: $(cat "$TMP/mail.body")" >&2
   exit 1
 fi
 
@@ -200,7 +204,7 @@ PY
 echo "=== remaining=0 still fills attachment rows ==="
 rm -f "$TMP/mail.args" "$TMP/mail.body"
 cat > "$REPO/ruffle.csv" <<'EOF'
-201066257228,AmrY1
+201066257228,AmrY1,Ramadan2026
 ,
 ,
 EOF
@@ -232,14 +236,15 @@ PY
 
 echo "=== two user ids in column 2 go to both emails ==="
 cat > "$REPO/ruffle.csv" <<'EOF'
-201777777777,AmrY1
-201666666666,IBRAHIMA67
+201777777777,AmrY1,Eid2026
+201666666666,IBRAHIMA67,IgnoredLaterName
 EOF
 rm -f "$TMP/mail.args" "$TMP/mail.body"
 run_cron
 args="$(tr '\n' ' ' < "$TMP/mail.args")"
 echo "$args" | grep -q -- "Youssef.amr1@vodafone.com.eg" || { echo "first to missing: $args" >&2; exit 1; }
 echo "$args" | grep -q -- "abdallah.ibrahim@vodafone.com.eg" || { echo "second to missing: $args" >&2; exit 1; }
+echo "$args" | grep -F -q -- "FMS Raffle Results || Eid2026 ||" || { echo "second mail subject missing Eid2026: $args" >&2; exit 1; }
 two_arch=("$ARCHIVE"/ruffle_*_AmrY1_IBRAHIMA67.csv)
 if [[ "${#two_arch[@]}" -lt 1 ]]; then
   echo "archive name should include both user ids" >&2

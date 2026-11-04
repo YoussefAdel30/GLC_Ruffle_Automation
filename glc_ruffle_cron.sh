@@ -39,7 +39,6 @@ LOCK_FILE="${LOCK_FILE:-${RUFFLE_HOME}/ruffle.lock}"
 
 SMTP_SERVER="${SMTP_SERVER:-10.230.30.32:25}"
 MAIL_FROM="${MAIL_FROM:-Anti-Fraud_Notifications_Center@vodafone.com}"
-MAIL_SUBJECT="${MAIL_SUBJECT:-FMS Automated Notification}"
 FMS_TEAM="${FMS_TEAM:-yasmin.wanas@vodafone.com.eg,mohamed.abdelrehim@vodafone.com.eg,omar.salah@vodafone.com.eg,Mai.Sheta@vodafone.com.eg,youssef.adel@vodafone.com.eg}"
 MAILX="${MAILX:-mailx}"
 
@@ -109,6 +108,7 @@ send_mail() {
   local to_csv="$1"
   local attach="$2"
   local body="$3"
+  local subject="$4"
   local to_args=()
   local addr
   if [[ -n "$to_csv" ]]; then
@@ -120,7 +120,7 @@ send_mail() {
 
   local mail_args=(
     -v
-    -s "$MAIL_SUBJECT"
+    -s "$subject"
     -r "$MAIL_FROM"
     -S "smtp=$SMTP_SERVER"
     -b "$FMS_TEAM"
@@ -146,23 +146,27 @@ process_csv() {
   local userids_file="${job_dir}/userids.txt"
   local emails_file="${job_dir}/emails.txt"
   local missing_file="${job_dir}/missing_userids.txt"
+  local raffle_name_file="${job_dir}/raffle_name.txt"
   local filter_dir="${job_dir}/filter"
   local attach="${job_dir}/ruffle_result.csv"
 
   log_info "Parsing drop file ${src}"
-  python3 "$JOBS_PY" parse --csv "$src" --msisdns-out "$msisdns_file" --userids-out "$userids_file"
+  python3 "$JOBS_PY" parse --csv "$src" --msisdns-out "$msisdns_file" --userids-out "$userids_file" --raffle-name-out "$raffle_name_file"
   python3 "$JOBS_PY" map --mapper "$MAPPER_FILE" --userids "$userids_file" --emails-out "$emails_file" --missing-out "$missing_file"
 
-  local userids emails missing n_in
+  local userids emails missing n_in raffle_name
   userids="$(tr '\n' ',' < "$userids_file" | sed 's/,$//')"
   emails="$(tr '\n' ',' < "$emails_file" | sed 's/,$//')"
   missing="$(tr '\n' ',' < "$missing_file" | sed 's/,$//')"
+  raffle_name="$(tr -d '\n\r' < "$raffle_name_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [[ -n "$raffle_name" ]] || raffle_name="unknown"
   n_in="$(wc -l < "$msisdns_file" | tr -d ' ')"
   [[ -s "$msisdns_file" ]] || n_in=0
   local label
   label="$(userid_label "$userids_file")"
+  local mail_subject="FMS Raffle Results || ${raffle_name} || ${RUN_TS}"
 
-  log_info "File ${base} userids=${userids:-none} emails=${emails:-none} msisdns=${n_in}"
+  log_info "File ${base} userids=${userids:-none} emails=${emails:-none} msisdns=${n_in} raffle_name=${raffle_name}"
   if [[ -n "$missing" ]]; then
     log_warn "Unmapped user ids (not in mapper.csv): ${missing}"
   fi
@@ -227,6 +231,7 @@ process_csv() {
 This is an automated notification from FMS.
 
 User ID: ${userids:-unknown}
+Raffle: ${raffle_name}
 Input file: ${base}
 Input MSISDNs: ${n_in}
 Filtered MSISDNs: ${remain_n}
@@ -235,8 +240,8 @@ Excluded MSISDNs: ${excl_n}
 Regards,
 FMS Team"
 
-  log_info "Sending mail TO=${emails:-none} BCC=${FMS_TEAM} attach=${result_name}"
-  send_mail "$emails" "$result_copy" "$body"
+  log_info "Sending mail subject=${mail_subject} TO=${emails:-none} BCC=${FMS_TEAM} attach=${result_name}"
+  send_mail "$emails" "$result_copy" "$body" "$mail_subject"
   log_info "Mail sent for ${base}"
 
   local archived="${ARCHIVE_DIR}/ruffle_${RUN_TS}_${label}.csv"

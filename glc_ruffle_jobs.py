@@ -19,30 +19,36 @@ def _read_text_rows(path):
 
 
 def parse_ruffle_csv(path):
-    """Return unique MSISDNs (col 1) and unique user ids (col 2, order preserved)."""
+    """Return unique MSISDNs (col 1), unique user ids (col 2), and raffle_name (col 3 first cell)."""
     msisdns = []
     seen_m = set()
     userids = []
     seen_u = set()
+    raffle_name = ""
     rows = _read_text_rows(path)
     if not rows:
-        return msisdns, userids
+        return msisdns, userids, raffle_name
     start = 0
     first = rows[0]
-    if first and str(first[0]).strip().lower() in ("msisdn", "input msisdn", "input msisdns"):
+    col0 = str(first[0]).strip().lower() if first else ""
+    col2 = str(first[2]).strip().lower() if first and len(first) > 2 else ""
+    if col0 in ("msisdn", "input msisdn", "input msisdns") or col2 == "raffle_name":
         start = 1
     for row in rows[start:]:
         if not row:
             continue
         msisdn = str(row[0]).strip() if len(row) > 0 else ""
         userid = str(row[1]).strip() if len(row) > 1 else ""
+        name = str(row[2]).strip() if len(row) > 2 else ""
         if msisdn and msisdn not in seen_m:
             seen_m.add(msisdn)
             msisdns.append(msisdn)
         if userid and userid not in seen_u:
             seen_u.add(userid)
             userids.append(userid)
-    return msisdns, userids
+        if name and not raffle_name:
+            raffle_name = name
+    return msisdns, userids, raffle_name
 
 
 def load_mapper(path):
@@ -225,7 +231,7 @@ def write_attachment(input_msisdns, remaining, exclusions, out_path):
 
 
 def cmd_parse(args):
-    msisdns, userids = parse_ruffle_csv(args.csv)
+    msisdns, userids, raffle_name = parse_ruffle_csv(args.csv)
     if args.msisdns_out:
         with open(args.msisdns_out, "w") as fh:
             if msisdns:
@@ -234,7 +240,13 @@ def cmd_parse(args):
         with open(args.userids_out, "w") as fh:
             if userids:
                 fh.write("\n".join(userids) + "\n")
-    print("msisdns=%s userids=%s" % (len(msisdns), ",".join(userids) if userids else ""))
+    if getattr(args, "raffle_name_out", None):
+        with open(args.raffle_name_out, "w") as fh:
+            fh.write((raffle_name + "\n") if raffle_name else "")
+    print(
+        "msisdns=%s userids=%s raffle_name=%s"
+        % (len(msisdns), ",".join(userids) if userids else "", raffle_name)
+    )
 
 
 def cmd_map(args):
@@ -286,14 +298,21 @@ def cmd_selftest(args):
     tmp = tempfile.mkdtemp()
     csv_path = os.path.join(tmp, "ruffle.csv")
     with open(csv_path, "w") as fh:
-        fh.write("201111111111,AmrY1\n")
-        fh.write("201222222222,IBRAHIMA67\n")
+        fh.write("201111111111,AmrY1,Ramadan2026\n")
+        fh.write("201222222222,IBRAHIMA67,IgnoredOtherName\n")
         fh.write(",\n")
         fh.write("201111111111,AmrY1\n")
         fh.write(",Mahmoudb4\n")
-    msisdns, userids = parse_ruffle_csv(csv_path)
+    msisdns, userids, raffle_name = parse_ruffle_csv(csv_path)
     assert msisdns == ["201111111111", "201222222222"], msisdns
     assert userids == ["AmrY1", "IBRAHIMA67", "Mahmoudb4"], userids
+    assert raffle_name == "Ramadan2026", raffle_name
+    header_csv = os.path.join(tmp, "header.csv")
+    with open(header_csv, "w") as fh:
+        fh.write("msisdn,userid,raffle_name\n")
+        fh.write("201111111111,AmrY1,Eid2026\n")
+    _m, _u, header_name = parse_ruffle_csv(header_csv)
+    assert header_name == "Eid2026", header_name
 
     mapper_path = os.path.join(tmp, "mapper.csv")
     with open(mapper_path, "w") as fh:
@@ -384,6 +403,7 @@ def build_parser():
     p.add_argument("--csv", required=True)
     p.add_argument("--msisdns-out")
     p.add_argument("--userids-out")
+    p.add_argument("--raffle-name-out")
     p.set_defaults(func=cmd_parse)
 
     p = sub.add_parser("map")
